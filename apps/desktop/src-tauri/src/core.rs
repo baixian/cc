@@ -1,6 +1,6 @@
 use crate::models::{CoreSnapshotDto, ErrorDto};
 use serde_json::Value;
-use std::time::Duration;
+use std::{net::{Ipv4Addr, Ipv6Addr}, time::Duration};
 use url::{Host, Url};
 
 #[derive(Clone)]
@@ -12,8 +12,8 @@ pub struct ExternalCore {
 pub fn parse_loopback_endpoint(input: &str) -> Result<Url, ErrorDto> {
     let url = Url::parse(input).map_err(|_| ErrorDto::new("INVALID_ENDPOINT", "控制器地址格式错误", false))?;
     let loopback = match url.host() {
-        Some(Host::Ipv4(ip)) => ip.is_loopback(),
-        Some(Host::Ipv6(ip)) => ip.is_loopback(),
+        Some(Host::Ipv4(ip)) => ip == Ipv4Addr::LOCALHOST,
+        Some(Host::Ipv6(ip)) => ip == Ipv6Addr::LOCALHOST,
         _ => false,
     };
     if url.scheme() != "http" || !loopback
