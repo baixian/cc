@@ -40,4 +40,12 @@ describe('read-only IPC gateway', () => {
     await gatewayApi.connectionsList('25', 'example.org');
     expect(invoke).toHaveBeenCalledWith('connections_list', {cursor:'25', filter:'example.org', limit:25});
   });
+  it('runs diagnostics with a request ID and no target URL from the page', async () => {
+    Object.assign(globalThis, {window: {__TAURI_INTERNALS__: {}}});
+    vi.stubGlobal('crypto', {randomUUID: () => '11111111-1111-4111-8111-111111111111'});
+    vi.mocked(invoke).mockResolvedValue({ok:true,envelope:{schemaVersion:3,data:{scope:'LOCAL_CONTROLLER_ONLY',probes:[]}}});
+    await gatewayApi.diagnosticsRun();
+    expect(invoke).toHaveBeenCalledWith('diagnostics_run', {requestId:'11111111-1111-4111-8111-111111111111'});
+    vi.unstubAllGlobals();
+  });
 });

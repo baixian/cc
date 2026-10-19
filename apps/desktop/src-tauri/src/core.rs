@@ -1,6 +1,6 @@
-use crate::models::{ConnectionDto, ConnectionPageDto, CoreSnapshotDto, ErrorDto, RouteEvidenceDto};
+use crate::models::{ConnectionDto, ConnectionPageDto, CoreSnapshotDto, DiagnosticProbeDto, DiagnosticReportDto, ErrorDto, RouteEvidenceDto};
 use serde_json::Value;
-use std::{collections::BTreeMap, net::{Ipv4Addr, Ipv6Addr}, time::Duration};
+use std::{collections::BTreeMap, net::{Ipv4Addr, Ipv6Addr}, time::{Duration, Instant}};
 use url::{Host, Url};
 
 #[derive(Clone)]
@@ -144,6 +144,25 @@ pub async fn list_connections(core: &ExternalCore, filter: &str, offset: usize, 
     parse_connections(&value, filter, offset, limit)
 }
 
+fn diagnostic_probe(name: &str, result: Result<Value, ErrorDto>, elapsed: Duration) -> DiagnosticProbeDto {
+    let reason_code = match result {
+        Ok(value) if name == "version" && value.get("version").and_then(Value::as_str).is_some_and(|s| !s.is_empty()) => None,
+        Ok(value) if name == "connections" && value.get("connections").and_then(Value::as_array).is_some() => None,
+        Ok(_) => Some("CORE_RESPONSE_INVALID".into()),
+        Err(error) => Some(error.code),
+    };
+    DiagnosticProbeDto { name: name.into(), status: if reason_code.is_some() { "UNAVAILABLE" } else { "AVAILABLE" }.into(),
+        latency_ms: elapsed.as_millis().min(u64::MAX as u128) as u64, reason_code }
+}
+
+pub async fn diagnose(core: &ExternalCore) -> DiagnosticReportDto {
+    let start = Instant::now();
+    let version = diagnostic_probe("version", get_json(&core.endpoint, "/version").await, start.elapsed());
+    let start = Instant::now();
+    let connections = diagnostic_probe("connections", get_json(&core.endpoint, "/connections").await, start.elapsed());
+    DiagnosticReportDto { observed_at: chrono::Utc::now().to_rfc3339(), scope: "LOCAL_CONTROLLER_ONLY".into(), probes: vec![version, connections] }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,5 +202,16 @@ mod tests {
         assert_eq!(snapshot.route_evidence[0].connection_count, 1);
         assert_eq!(snapshot.unknown_route_count, 3);
         assert_eq!(snapshot.identified_process_count, 1);
+    }
+    #[test]
+    fn diagnostic_evidence_keeps_api_failure_reason() {
+        let ok = diagnostic_probe("version", Ok(serde_json::json!({"version":"1.0"})), Duration::from_millis(12));
+        assert_eq!(ok.status, "AVAILABLE");
+        assert_eq!(ok.latency_ms, 12);
+        let invalid = diagnostic_probe("connections", Ok(serde_json::json!({"connections":null})), Duration::ZERO);
+        assert_eq!(invalid.reason_code.as_deref(), Some("CORE_RESPONSE_INVALID"));
+        let offline = diagnostic_probe("version", Err(ErrorDto::new("CORE_UNAVAILABLE", "离线", true)), Duration::ZERO);
+        assert_eq!(offline.status, "UNAVAILABLE");
+        assert_eq!(offline.reason_code.as_deref(), Some("CORE_UNAVAILABLE"));
     }
 }

@@ -2,7 +2,7 @@
 
 mod models;
 mod core;
-use models::{BootstrapDto, CommandResult, ConnectionPageDto, CoreSessionDto, CoreSnapshotDto, EnvironmentDto, ErrorDto};
+use models::{BootstrapDto, CommandResult, ConnectionPageDto, CoreSessionDto, CoreSnapshotDto, DiagnosticReportDto, EnvironmentDto, ErrorDto};
 use std::sync::Mutex;
 use tauri::State;
 
@@ -86,10 +86,22 @@ async fn connections_list(cursor: Option<String>, limit: Option<usize>, filter: 
     })
 }
 
+#[tauri::command]
+async fn diagnostics_run(request_id: String, state: State<'_, CoreState>) -> Result<CommandResult<DiagnosticReportDto>, String> {
+    if !valid_request_id(&request_id) {
+        return Ok(CommandResult::failure(ErrorDto::new("INVALID_REQUEST", "请求 ID 无效", false)));
+    }
+    let connected = state.0.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    Ok(match connected {
+        Some(c) => CommandResult::success(core::diagnose(&c).await),
+        None => CommandResult::failure(ErrorDto::new("NO_CORE", "尚未连接 Mihomo 内核", false)),
+    })
+}
+
 fn main() {
     tauri::Builder::default()
         .manage(CoreState::default())
-        .invoke_handler(tauri::generate_handler![app_get_bootstrap, system_get_environment, core_connect_external, core_disconnect, core_get_snapshot, connections_list])
+        .invoke_handler(tauri::generate_handler![app_get_bootstrap, system_get_environment, core_connect_external, core_disconnect, core_get_snapshot, connections_list, diagnostics_run])
         .run(tauri::generate_context!())
         .expect("failed to start desktop app");
 }

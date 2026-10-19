@@ -163,6 +163,26 @@ pub struct ConnectionPageDto {
     pub observed_at: String,
 }
 
+#[derive(Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct DiagnosticProbeDto {
+    pub name: String,
+    pub status: String,
+    #[ts(type = "number")]
+    pub latency_ms: u64,
+    pub reason_code: Option<String>,
+}
+
+#[derive(Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct DiagnosticReportDto {
+    pub observed_at: String,
+    pub scope: String,
+    pub probes: Vec<DiagnosticProbeDto>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

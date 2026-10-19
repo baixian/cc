@@ -8,6 +8,8 @@ export type { CoreSnapshotDto } from './ipc/CoreSnapshotDto';
 export type { EnvironmentDto } from './ipc/EnvironmentDto';
 export type { ErrorDto } from './ipc/ErrorDto';
 export type { RouteEvidenceDto } from './ipc/RouteEvidenceDto';
+export type { DiagnosticProbeDto } from './ipc/DiagnosticProbeDto';
+export type { DiagnosticReportDto } from './ipc/DiagnosticReportDto';
 import type { ErrorDto } from './ipc/ErrorDto';
 export type CommandResult<T> = {
   ok: boolean;

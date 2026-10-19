@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { gatewayApi, GatewayIpcError } from './ipc';
-import type { BootstrapDto, ConnectionPageDto, CoreSnapshotDto, EnvironmentDto } from './generated/contracts';
+import type { BootstrapDto, ConnectionPageDto, CoreSnapshotDto, DiagnosticReportDto, EnvironmentDto } from './generated/contracts';
 import { pages, type PageKey } from './pages';
 
 const active = ref<PageKey>('overview');
@@ -15,6 +15,9 @@ const loading = ref(false);
 const connectionPage = ref<ConnectionPageDto | null>(null);
 const connectionError = ref('');
 const connectionLoading = ref(false);
+const diagnosticReport = ref<DiagnosticReportDto | null>(null);
+const diagnosticError = ref('');
+const diagnosticLoading = ref(false);
 const connectionFilter = ref('');
 const appliedFilter = ref('');
 const cursor = ref<string | null>(null);
@@ -23,6 +26,7 @@ const clock = ref(Date.now());
 let poller: ReturnType<typeof setInterval> | undefined;
 let generation = 0;
 let snapshotGeneration = 0;
+let diagnosticGeneration = 0;
 const connectionStale = computed(() => !connectionPage.value || clock.value - Date.parse(connectionPage.value.observedAt) > 5000);
 const snapshotStale = computed(() => !snapshot.value || clock.value - Date.parse(snapshot.value.observedAt) > 5000);
 const overviewValid = computed(() => !coreError.value && !snapshotStale.value);
@@ -62,11 +66,35 @@ async function disconnect() {
   loading.value = true;
   generation++;
   snapshotGeneration++;
+  diagnosticGeneration++;
+  diagnosticReport.value = null;
+  diagnosticError.value = '';
   connectionPage.value = null;
   snapshot.value = null;
   try { await gatewayApi.disconnect(); await refresh(); }
   catch (cause) { error.value = explain(cause, '断开失败'); }
   finally { loading.value = false; }
+}
+async function runDiagnostics() {
+  if (diagnosticLoading.value || boot.value?.coreMode !== 'external') return;
+  const request = ++diagnosticGeneration;
+  diagnosticLoading.value = true;
+  diagnosticError.value = '';
+  try {
+    const result = await gatewayApi.diagnosticsRun();
+    if (request === diagnosticGeneration && boot.value?.coreMode === 'external') diagnosticReport.value = result;
+  } catch (cause) {
+    if (request === diagnosticGeneration) diagnosticError.value = explain(cause, '诊断读取失败');
+  } finally { diagnosticLoading.value = false; }
+}
+function diagnosticReason(code: string | null) {
+  if (!code) return '控制器接口可读';
+  const labels: Record<string, string> = {
+    CORE_UNAVAILABLE: '本机控制器未响应', CORE_AUTH_REQUIRED: '控制器需要 Secret',
+    CORE_API_ERROR: '控制器返回异常状态', CORE_RESPONSE_INVALID: '响应缺少必要字段',
+    CORE_RESPONSE_TOO_LARGE: '响应超过读取上限', CORE_CLIENT_ERROR: '本机连接创建失败',
+  };
+  return labels[code] ?? code;
 }
 async function loadOverviewSnapshot() {
   if (boot.value?.coreMode !== 'external') return;
@@ -136,7 +164,7 @@ onMounted(() => {
     if (active.value === 'overview' && boot.value?.coreMode === 'external') void loadOverviewSnapshot();
   }, 2000);
 });
-onUnmounted(() => { if (poller) clearInterval(poller); generation++; snapshotGeneration++; });
+onUnmounted(() => { if (poller) clearInterval(poller); generation++; snapshotGeneration++; diagnosticGeneration++; });
 </script>
 
 <template>
@@ -165,6 +193,7 @@ onUnmounted(() => { if (poller) clearInterval(poller); generation++; snapshotGen
           <div v-else-if="!connectionPage" class="empty"><div class="empty-mark">◇</div><b>{{ connectionLoading ? '正在读取连接' : '暂无有效连接快照' }}</b></div>
           <template v-else><div class="table-wrap"><table><thead><tr><th>目标</th><th>进程</th><th>规则</th><th>链路</th><th>上传 / 下载</th></tr></thead><tbody><tr v-for="item in connectionPage.items" :key="item.id"><td>{{ item.host || item.destinationIp || '未知' }}<small v-if="item.host && item.destinationIp">{{ item.destinationIp }}</small></td><td>{{ item.processName || '未知' }}</td><td>{{ item.rule || '未知' }}</td><td>{{ item.chains.length ? item.chains.join(' → ') : '未知' }}</td><td>{{ displayBytes(item.uploadBytes) }} / {{ displayBytes(item.downloadBytes) }}</td></tr></tbody></table></div><div v-if="!connectionPage.items.length" class="empty compact">当前筛选下没有连接。</div><div class="pagination"><span>第 {{ cursorHistory.length + 1 }} 页 · 跳过无效记录 {{ connectionPage.skippedCount }} 条</span><div><button :disabled="!cursorHistory.length" @click="previousConnections">上一页</button><button :disabled="!connectionPage.hasMore" @click="nextConnections">下一页</button></div></div><p class="table-note">每页重新读取实时快照；连接变化可能改变分页顺序。超过 5 秒无成功读取时状态标记为 UNKNOWN。</p></template>
         </div></template>
+        <template v-else-if="active === 'diagnostics'"><div class="panel"><div class="panel-title"><strong>本机控制器诊断</strong><span>只读 · 手动运行</span></div><p class="diag-intro">检测当前连接的 Mihomo 控制器接口是否可读。系统 DNS、外网连通性、代理和 TUN 均未检测，网络健康仍为 UNKNOWN。</p><button class="diag-run" :disabled="diagnosticLoading || boot?.coreMode !== 'external'" @click="runDiagnostics">{{ diagnosticLoading ? '正在读取…' : '运行控制器诊断' }}</button><div v-if="diagnosticError" class="alert" role="alert">{{ diagnosticError }}</div><div v-if="diagnosticReport" class="diagnostic-results"><div class="check-row" v-for="probe in diagnosticReport.probes" :key="probe.name"><span>{{ probe.name === 'version' ? '版本接口 /version' : '连接接口 /connections' }}</span><strong :class="{ unknown: probe.status !== 'AVAILABLE' }">{{ probe.status === 'AVAILABLE' ? '可读' : '不可读' }} · {{ probe.latencyMs }} ms<br/><small>{{ diagnosticReason(probe.reasonCode) }}</small></strong></div><p>观测时间：{{ diagnosticReport.observedAt }} · 本次报告仅限本机控制器；诊断结果不会自动保留为网络健康结论。</p></div><div v-else-if="boot?.coreMode !== 'external'" class="empty compact">请先在首次使用页连接本机控制器。</div></div></template>
         <template v-else><div class="panel"><div class="panel-title"><strong>{{ current.name }}</strong><span>接口接入待完成</span></div><div class="empty"><div class="empty-mark">◇</div><b>尚无真实数据</b><p>此页已纳入导航与状态框架。{{ current.detail }}将在相应 Rust IPC 和实机验收通过后开放。</p></div></div></template>
         <div class="footnote">{{ environment?.observedAt ? `环境观测时间：${environment.observedAt}` : '尚无有效环境快照' }} · 当前版本不修改代理、DNS 或路由。</div>
       </div>
