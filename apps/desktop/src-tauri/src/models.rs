@@ -10,7 +10,7 @@ pub struct Envelope<T> {
     pub data: T,
 }
 
-#[derive(Clone, Serialize, TS)]
+#[derive(Clone, Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../src/generated/")]
 pub struct ErrorDto {
