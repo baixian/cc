@@ -31,18 +31,17 @@ fn system_get_environment() -> CommandResult<EnvironmentDto> {
 }
 
 #[tauri::command]
-#[tauri::command]
-async fn core_connect_external(endpoint: String, readonly: bool, request_id: String, state: State<'_, CoreState>) -> CommandResult<CoreSessionDto> {
+async fn core_connect_external(endpoint: String, readonly: bool, request_id: String, state: State<'_, CoreState>) -> Result<CommandResult<CoreSessionDto>, String> {
     if !readonly || !valid_request_id(&request_id) {
-        return CommandResult::failure(ErrorDto::new("INVALID_REQUEST", "仅支持带有效请求 ID 的只读连接", false));
+        return Ok(CommandResult::failure(ErrorDto::new("INVALID_REQUEST", "仅支持带有效请求 ID 的只读连接", false)));
     }
     let candidate = match core::connect(&endpoint).await {
         Ok(v) => v,
-        Err(e) => return CommandResult::failure(e),
+        Err(e) => return Ok(CommandResult::failure(e)),
     };
     let session = CoreSessionDto { mode: "external".into(), state: "EXTERNAL_READONLY".into(), version: candidate.version.clone(), endpoint: candidate.endpoint.to_string() };
     *state.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(candidate);
-    CommandResult::success(session)
+    Ok(CommandResult::success(session))
 }
 
 #[tauri::command]
@@ -55,15 +54,15 @@ fn core_disconnect(request_id: String, state: State<'_, CoreState>) -> CommandRe
 }
 
 #[tauri::command]
-async fn core_get_snapshot(state: State<'_, CoreState>) -> CommandResult<CoreSnapshotDto> {
+async fn core_get_snapshot(state: State<'_, CoreState>) -> Result<CommandResult<CoreSnapshotDto>, String> {
     let connected = state.0.lock().unwrap_or_else(|e| e.into_inner()).clone();
-    match connected {
+    Ok(match connected {
         Some(c) => match core::snapshot(&c).await {
             Ok(s) => CommandResult::success(s),
             Err(e) => CommandResult::failure(e),
         },
         None => CommandResult::failure(ErrorDto::new("NO_CORE", "尚未连接 Mihomo 内核", false)),
-    }
+    })
 }
 
 fn main() {
