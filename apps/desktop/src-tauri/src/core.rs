@@ -1,6 +1,6 @@
-use crate::models::{ConnectionDto, ConnectionPageDto, CoreSnapshotDto, ErrorDto};
+use crate::models::{ConnectionDto, ConnectionPageDto, CoreSnapshotDto, ErrorDto, RouteEvidenceDto};
 use serde_json::Value;
-use std::{net::{Ipv4Addr, Ipv6Addr}, time::Duration};
+use std::{collections::BTreeMap, net::{Ipv4Addr, Ipv6Addr}, time::Duration};
 use url::{Host, Url};
 
 #[derive(Clone)]
@@ -67,15 +67,37 @@ pub async fn connect(endpoint_input: &str) -> Result<ExternalCore, ErrorDto> {
 
 pub async fn snapshot(core: &ExternalCore) -> Result<CoreSnapshotDto, ErrorDto> {
     let value = get_json(&core.endpoint, "/connections").await?;
+    parse_snapshot(&value, &core.version)
+}
+
+pub fn parse_snapshot(value: &Value, version: &str) -> Result<CoreSnapshotDto, ErrorDto> {
     let connections = value.get("connections").and_then(Value::as_array)
         .ok_or_else(|| ErrorDto::new("CORE_RESPONSE_INVALID", "连接列表字段缺失", false))?;
+    let mut chains = BTreeMap::<String, u64>::new();
+    let mut unknown_route_count = 0;
+    let mut identified_process_count = 0;
+    for entry in connections {
+        let chain = entry.get("chains").and_then(Value::as_array)
+            .map(|items| items.iter().take(12).filter_map(|item| bounded_string(Some(item))).collect::<Vec<_>>())
+            .filter(|items| !items.is_empty()).map(|items| items.join(" → "));
+        if let Some(chain) = chain { *chains.entry(chain).or_default() += 1; }
+        else { unknown_route_count += 1; }
+        if entry.get("metadata").and_then(|m| m.get("processName").or_else(|| m.get("process")))
+            .and_then(Value::as_str).is_some_and(|s| !s.is_empty()) { identified_process_count += 1; }
+    }
+    let mut route_evidence: Vec<_> = chains.into_iter().map(|(chain, connection_count)| RouteEvidenceDto { chain, connection_count }).collect();
+    route_evidence.sort_by(|a, b| b.connection_count.cmp(&a.connection_count).then_with(|| a.chain.cmp(&b.chain)));
+    route_evidence.truncate(6);
     Ok(CoreSnapshotDto {
         state: "EXTERNAL_READONLY".into(),
         observed_at: chrono::Utc::now().to_rfc3339(),
-        core_version: core.version.clone(),
+        core_version: version.into(),
         connection_count: connections.len() as u64,
         upload_bytes: safe_byte_count(value.get("uploadTotal")),
         download_bytes: safe_byte_count(value.get("downloadTotal")),
+        route_evidence,
+        unknown_route_count,
+        identified_process_count,
     })
 }
 
@@ -150,5 +172,16 @@ mod tests {
         assert_eq!(second.items.iter().map(|x| x.id.as_str()).collect::<Vec<_>>(), vec!["c-02", "c-03"]);
         assert!(!second.has_more);
         assert_eq!(safe_byte_count(Some(&serde_json::json!(9_007_199_254_740_992_u64))), None);
+    }
+    #[test]
+    fn snapshot_evidence_counts_all_rows_without_claiming_system_routing() {
+        let input: Value = serde_json::from_str(include_str!("../fixtures/connections.json")).unwrap();
+        let snapshot = parse_snapshot(&input, "test").unwrap();
+        assert_eq!(snapshot.connection_count, 4);
+        assert_eq!(snapshot.route_evidence.len(), 1);
+        assert_eq!(snapshot.route_evidence[0].chain, "Proxy → US");
+        assert_eq!(snapshot.route_evidence[0].connection_count, 1);
+        assert_eq!(snapshot.unknown_route_count, 3);
+        assert_eq!(snapshot.identified_process_count, 1);
     }
 }

@@ -7,6 +7,7 @@ export type { CoreSessionDto } from './ipc/CoreSessionDto';
 export type { CoreSnapshotDto } from './ipc/CoreSnapshotDto';
 export type { EnvironmentDto } from './ipc/EnvironmentDto';
 export type { ErrorDto } from './ipc/ErrorDto';
+export type { RouteEvidenceDto } from './ipc/RouteEvidenceDto';
 import type { ErrorDto } from './ipc/ErrorDto';
 export type CommandResult<T> = {
   ok: boolean;

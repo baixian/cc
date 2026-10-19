@@ -109,6 +109,20 @@ pub struct CoreSnapshotDto {
     pub upload_bytes: Option<u64>,
     #[ts(type = "number | null")]
     pub download_bytes: Option<u64>,
+    pub route_evidence: Vec<RouteEvidenceDto>,
+    #[ts(type = "number")]
+    pub unknown_route_count: u64,
+    #[ts(type = "number")]
+    pub identified_process_count: u64,
+}
+
+#[derive(Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct RouteEvidenceDto {
+    pub chain: String,
+    #[ts(type = "number")]
+    pub connection_count: u64,
 }
 
 #[derive(Clone, Serialize, TS)]

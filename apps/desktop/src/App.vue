@@ -22,7 +22,10 @@ const cursorHistory = ref<(string | null)[]>([]);
 const clock = ref(Date.now());
 let poller: ReturnType<typeof setInterval> | undefined;
 let generation = 0;
+let snapshotGeneration = 0;
 const connectionStale = computed(() => !connectionPage.value || clock.value - Date.parse(connectionPage.value.observedAt) > 5000);
+const snapshotStale = computed(() => !snapshot.value || clock.value - Date.parse(snapshot.value.observedAt) > 5000);
+const overviewValid = computed(() => !coreError.value && !snapshotStale.value);
 const current = computed(() => pages.find(p => p.key === active.value)!);
 function explain(cause: unknown, fallback: string) {
   return cause instanceof GatewayIpcError ? `${cause.code}：${cause.message}` : fallback;
@@ -30,6 +33,7 @@ function explain(cause: unknown, fallback: string) {
 async function refresh() {
   loading.value = true;
   error.value = '';
+  snapshotGeneration++;
   try {
     const [b, e] = await Promise.all([gatewayApi.bootstrap(), gatewayApi.environment()]);
     boot.value = b;
@@ -37,8 +41,7 @@ async function refresh() {
     snapshot.value = null;
     coreError.value = '';
     if (b.coreMode === 'external') {
-      try { snapshot.value = await gatewayApi.coreSnapshot(); }
-      catch (cause) { coreError.value = explain(cause, '内核快照读取失败'); }
+      await loadOverviewSnapshot();
     }
     if (active.value === 'connections') void loadConnections();
   } catch (cause) {
@@ -58,10 +61,25 @@ async function connect() {
 async function disconnect() {
   loading.value = true;
   generation++;
+  snapshotGeneration++;
   connectionPage.value = null;
+  snapshot.value = null;
   try { await gatewayApi.disconnect(); await refresh(); }
   catch (cause) { error.value = explain(cause, '断开失败'); }
   finally { loading.value = false; }
+}
+async function loadOverviewSnapshot() {
+  if (boot.value?.coreMode !== 'external') return;
+  const request = ++snapshotGeneration;
+  try {
+    const data = await gatewayApi.coreSnapshot();
+    if (request !== snapshotGeneration || boot.value?.coreMode !== 'external') return;
+    snapshot.value = data;
+    coreError.value = '';
+    clock.value = Date.now();
+  } catch (cause) {
+    if (request === snapshotGeneration) coreError.value = explain(cause, '内核快照读取失败');
+  }
 }
 async function loadConnections() {
   if (connectionLoading.value || active.value !== 'connections') return;
@@ -108,15 +126,17 @@ function displayBytes(value: number | null) {
 watch(active, page => {
   generation++;
   if (page === 'connections') void loadConnections();
+  if (page === 'overview') void loadOverviewSnapshot();
 });
 onMounted(() => {
   void refresh();
   poller = setInterval(() => {
     clock.value = Date.now();
     if (active.value === 'connections' && boot.value?.coreMode === 'external') void loadConnections();
+    if (active.value === 'overview' && boot.value?.coreMode === 'external') void loadOverviewSnapshot();
   }, 2000);
 });
-onUnmounted(() => { if (poller) clearInterval(poller); generation++; });
+onUnmounted(() => { if (poller) clearInterval(poller); generation++; snapshotGeneration++; });
 </script>
 
 <template>
@@ -128,14 +148,14 @@ onUnmounted(() => { if (poller) clearInterval(poller); generation++; });
       <div class="sidebar-bottom"><span class="dot off"></span> {{ boot?.coreMode === 'external' ? '外部内核 · 只读' : '未接管系统网络' }}</div>
     </aside>
     <main class="main">
-      <header class="topbar"><div class="breadcrumb">工作台 <span>/</span> {{ current.name }}</div><div class="top-actions"><span class="mode">{{ boot?.coreMode ?? '未选择模式' }}</span><span class="status">{{ coreError ? '状态未知' : boot?.coreState ?? '未连接' }}</span><button class="refresh" :disabled="loading" @click="refresh">{{ loading ? '读取中' : '刷新状态' }}</button></div></header>
+      <header class="topbar"><div class="breadcrumb">工作台 <span>/</span> {{ current.name }}</div><div class="top-actions"><span class="mode">{{ boot?.coreMode ?? '未选择模式' }}</span><span class="status">{{ boot?.coreMode === 'external' && !overviewValid ? '状态未知' : boot?.coreState ?? '未连接' }}</span><button class="refresh" :disabled="loading" @click="refresh">{{ loading ? '读取中' : '刷新状态' }}</button></div></header>
       <div class="content">
         <div class="heading"><div><div class="eyebrow">{{ current.id }} / NETWORK CONTROL</div><h1>{{ current.name }}</h1><p>{{ current.detail }}</p></div><span class="badge">开发中 · 无网络写入能力</span></div>
         <div v-if="error" class="alert" role="alert">{{ error }}</div>
         <div v-if="coreError" class="alert" role="alert">{{ coreError }}。上次连接不代表内核现在可用。</div>
         <template v-if="active === 'overview'">
-          <div class="cards"><div class="card"><div class="card-label">内核状态</div><strong>{{ snapshot?.state ?? '未知' }}</strong><small>来源：{{ snapshot ? 'Mihomo API' : '尚无有效快照' }}</small></div><div class="card"><div class="card-label">网络入口</div><strong>{{ boot?.ingress ?? '未知' }}</strong><small>未验证 TUN / 系统代理</small></div><div class="card"><div class="card-label">实时连接</div><strong>{{ snapshot?.connectionCount ?? '未知' }}</strong><small>{{ snapshot?.observedAt ?? '等待读取' }}</small></div><div class="card"><div class="card-label">网络健康</div><strong class="unknown">UNKNOWN</strong><small>连接数不代表健康检测通过</small></div></div>
-          <div class="panel topology"><div class="panel-title"><strong>网络拓扑</strong><span>{{ snapshot ? `内核 ${snapshot.coreVersion}` : '真实连接采集待接入' }}</span></div><div class="empty"><div class="empty-mark">◎</div><b>{{ snapshot ? `当前观测到 ${snapshot.connectionCount} 条连接` : '暂无可验证的连接数据' }}</b><p>连接计数来自本机控制器；进程识别、路由链路与动态拓扑将在采集器实现后展示。</p></div></div>
+          <div class="cards"><div class="card"><div class="card-label">内核状态</div><strong>{{ overviewValid ? snapshot?.state : 'UNKNOWN' }}</strong><small>来源：{{ overviewValid ? 'Mihomo API 快照' : '无新鲜快照' }}</small></div><div class="card"><div class="card-label">网络入口</div><strong>{{ boot?.ingress ?? '未知' }}</strong><small>未验证 TUN / 系统代理</small></div><div class="card"><div class="card-label">实时连接</div><strong>{{ overviewValid ? snapshot?.connectionCount : '未知' }}</strong><small>{{ snapshot?.observedAt ?? '等待读取' }}</small></div><div class="card"><div class="card-label">网络健康</div><strong class="unknown">UNKNOWN</strong><small>连接数不代表健康检测通过</small></div></div>
+          <div class="panel topology"><div class="panel-title"><strong>连接链路证据</strong><span>{{ overviewValid ? `内核 ${snapshot?.coreVersion} · ${snapshot?.observedAt}` : 'UNKNOWN / 无新鲜快照' }}</span></div><div v-if="overviewValid && snapshot" class="evidence"><p>本机控制器观测到 {{ snapshot.connectionCount }} 条连接，其中 {{ snapshot.identifiedProcessCount }} 条含进程名，{{ snapshot.unknownRouteCount }} 条未提供链路。下面仅展示最多 6 条常见链路。</p><div v-for="route in snapshot.routeEvidence" :key="route.chain" class="route-row"><span>{{ route.chain }}</span><div class="route-track"><div :style="{ width: `${Math.max(2, route.connectionCount / Math.max(1, snapshot.connectionCount) * 100)}%` }"></div></div><strong>{{ route.connectionCount }}</strong></div><div v-if="!snapshot.routeEvidence.length" class="empty compact">控制器未提供可汇总的链路数据。</div><small>链路字段是 Mihomo 的连接记录，不证明 macOS 流量经过本应用，也不代表系统代理或 TUN 已接管。</small></div><div v-else class="empty"><div class="empty-mark">◎</div><b>暂无新鲜的连接证据</b><p>连接控制器后会自动读取；读取失败或超过 5 秒未成功刷新即显示 UNKNOWN。</p></div></div>
         </template>
         <template v-else-if="active === 'onboarding'"><div class="panel"><div class="panel-title"><strong>首次使用 · 环境扫描</strong><span>只读接入</span></div><div class="check-row"><span>操作系统</span><strong>{{ environment?.osVersion ?? '未知' }}</strong></div><div class="check-row"><span>CPU 架构</span><strong>{{ environment?.architecture ?? '未知' }}</strong></div><div class="check-row"><span>网络检查</span><strong class="unknown">{{ environment?.networkStatus ?? 'UNKNOWN' }}</strong></div><form class="connect-form" @submit.prevent="connect"><label for="endpoint">本机 Mihomo 控制器地址（无需 Secret 的控制器）</label><div><input id="endpoint" v-model="endpoint" placeholder="http://127.0.0.1:9090" :disabled="loading"/><button :disabled="loading" type="submit">连接只读内核</button><button v-if="boot?.coreMode === 'external'" :disabled="loading" type="button" @click="disconnect">断开</button></div><small>仅连接 127.0.0.1 或 ::1；不修改现有 Clash 配置、系统代理或 TUN。需要 Secret 的控制器会明确报错。</small></form><div class="notice">托管模式的配置预览、预检、系统授权及读回健康尚未实现，当前不能完成托管向导。</div></div></template>
         <template v-else-if="active === 'connections'"><div class="panel"><div class="panel-title"><strong>实时连接 · 本机 Mihomo</strong><span>{{ connectionError || connectionStale ? 'UNKNOWN / 数据已过期' : '已观测' }} · {{ connectionPage?.observedAt ?? '尚未观测' }}</span></div>
