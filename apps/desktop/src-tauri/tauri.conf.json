@@ -1,0 +1,9 @@
+{
+  "$schema":"https://schema.tauri.app/config/2",
+  "productName":"Mac 智能网络网关",
+  "version":"0.1.0",
+  "identifier":"app.macgateway.dev",
+  "build":{"beforeDevCommand":"npm run dev","devUrl":"http://127.0.0.1:1420","beforeBuildCommand":"npm run build","frontendDist":"../dist"},
+  "app":{"windows":[{"title":"Mac 智能网络网关 · 开发版","width":1440,"height":900,"minWidth":1180,"minHeight":760}],"security":{"csp":"default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' data:; style-src 'self' 'unsafe-inline'"}},
+  "bundle":{"active":false}
+}

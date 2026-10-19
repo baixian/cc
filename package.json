@@ -1,0 +1,9 @@
+{
+  "name": "mac-gateway-workspace",
+  "private": true,
+  "scripts": {
+    "dev": "npm --prefix apps/desktop run dev",
+    "build": "npm --prefix apps/desktop run build",
+    "test": "npm --prefix apps/desktop run test"
+  }
+}
