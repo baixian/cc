@@ -103,8 +103,11 @@ pub struct CoreSnapshotDto {
     pub state: String,
     pub observed_at: String,
     pub core_version: String,
+    #[ts(type = "number")]
     pub connection_count: u64,
+    #[ts(type = "number | null")]
     pub upload_bytes: Option<u64>,
+    #[ts(type = "number | null")]
     pub download_bytes: Option<u64>,
 }
 
@@ -128,7 +131,9 @@ pub struct ConnectionDto {
     pub process_name: Option<String>,
     pub rule: Option<String>,
     pub chains: Vec<String>,
+    #[ts(type = "number | null")]
     pub upload_bytes: Option<u64>,
+    #[ts(type = "number | null")]
     pub download_bytes: Option<u64>,
 }
 

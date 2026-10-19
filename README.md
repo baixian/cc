@@ -9,7 +9,7 @@
 - `app_get_bootstrap`、`system_get_environment`、`core_connect_external`、`core_disconnect`、`core_get_snapshot`。目前仅支持无 Secret 的本机控制器只读连接；严格限制到 `127.0.0.1` 或 `::1`，不访问其他地址，不修改网络。
 - `/version` 与 `/connections` 真实读取，首页显示连接数量；P05 展示连接目标、进程、规则、链路和流量，支持筛选、分页、两秒轮询及五秒过期提示。每页重新读取快照，连接变化可能影响分页顺序；接口失败或字段缺失时显示错误/未知。
 - 前端 IPC 版本校验，浏览器打开时拒绝伪造桌面数据；5 项基础单测。
-- Rust DTO 上的 `ts-rs` 导出注解。当前 TS 契约快照需要在有 Rust 的环境执行 `cargo test` 后核对生成文件，尚未完成自动契约门禁。
+- Rust DTO 使用 `ts-rs` 导出 TypeScript 类型，前端直接引用生成文件；macOS CI 会比对生成结果与仓库版本，阻断字段漂移。累计字节数超出 JavaScript 安全整数时标为未知。
 
 ## 运行
 
@@ -24,10 +24,12 @@ npm run test              # 前端 IPC 错误路径测试
 
 macOS 上执行 `cd apps/desktop/src-tauri && cargo test` 检查 Rust DTO 和测试；再执行 `cargo fmt --check`。GitHub Actions 的 macOS S1 编译和单测已通过（[运行记录](https://github.com/baixian/cc/actions/runs/39189843429)）。这并不证明系统网络接管、真实控制器兼容或异常恢复通过。生产打包也尚未配置签名、公证、helper、Mihomo 二进制和卸载恢复。
 
+在 Mac 上运行 `bash scripts/check-contracts.sh` 验证 Rust 生成的前端类型；Rust DTO 改动后运行 `bash scripts/check-contracts.sh --write` 并提交 `apps/desktop/src/generated/ipc` 的更新。`fixtures/connections.json` 是无凭据的模拟响应，仅用于解析测试，并非实机采集记录。
+
 ## 下一批任务
 
 1. MAC-01/02：Mac 上只读检查系统代理、DNS、路由及 VPN；测试 H/N 路线和恢复证据，冻结 S0 决策。
-2. CON-01/BE-04：固定 Mihomo 版本，补 Keychain Secret 的原生录入与读取、API fixtures、Rust DTO → TS 自动生成与 CI 契约门禁；完成 Rust 侧编译和契约测试。
+2. CON-01/BE-04：固定 Mihomo 版本，补 Keychain Secret 的原生录入与读取，并采集经过脱敏的实机 API fixtures；生成类型与 CI 契约门禁已接入。
 3. BE-05/FE-04/05：P01 动态拓扑和事件流，事件断流超过 5 秒转 STALE，断线后从快照重新同步；P05 的定时快照是初步实现。
 4. 在恢复 journal/所有权机制通过实机测试前，保持所有网络写入能力关闭。
 

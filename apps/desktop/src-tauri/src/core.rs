@@ -74,13 +74,18 @@ pub async fn snapshot(core: &ExternalCore) -> Result<CoreSnapshotDto, ErrorDto> 
         observed_at: chrono::Utc::now().to_rfc3339(),
         core_version: core.version.clone(),
         connection_count: connections.len() as u64,
-        upload_bytes: value.get("uploadTotal").and_then(Value::as_u64),
-        download_bytes: value.get("downloadTotal").and_then(Value::as_u64),
+        upload_bytes: safe_byte_count(value.get("uploadTotal")),
+        download_bytes: safe_byte_count(value.get("downloadTotal")),
     })
 }
 
 fn bounded_string(value: Option<&Value>) -> Option<String> {
     value.and_then(Value::as_str).filter(|s| !s.is_empty()).map(|s| s.chars().take(256).collect())
+}
+
+fn safe_byte_count(value: Option<&Value>) -> Option<u64> {
+    const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
+    value.and_then(Value::as_u64).filter(|n| *n <= MAX_SAFE_INTEGER)
 }
 
 pub fn parse_connections(value: &Value, filter: &str, offset: usize, limit: usize) -> Result<ConnectionPageDto, ErrorDto> {
@@ -101,8 +106,8 @@ pub fn parse_connections(value: &Value, filter: &str, offset: usize, limit: usiz
         let chains = entry.get("chains").and_then(Value::as_array).map(|a| a.iter().take(12)
             .filter_map(|v| bounded_string(Some(v))).collect()).unwrap_or_default();
         items.push(ConnectionDto { id, host, destination_ip, process_name, rule, chains,
-            upload_bytes: entry.get("upload").and_then(Value::as_u64),
-            download_bytes: entry.get("download").and_then(Value::as_u64) });
+            upload_bytes: safe_byte_count(entry.get("upload")),
+            download_bytes: safe_byte_count(entry.get("download")) });
     }
     items.sort_by(|a,b| a.id.cmp(&b.id));
     let total = items.len();
@@ -144,5 +149,6 @@ mod tests {
         let second = parse_connections(&input, "", 1, 2).unwrap();
         assert_eq!(second.items.iter().map(|x| x.id.as_str()).collect::<Vec<_>>(), vec!["c-02", "c-03"]);
         assert!(!second.has_more);
+        assert_eq!(safe_byte_count(Some(&serde_json::json!(9_007_199_254_740_992_u64))), None);
     }
 }

@@ -6,13 +6,13 @@
 2. Rust 请求 `/version` 确认控制器响应；拒绝重定向、代理环境变量、非本机 IP、路径、查询参数、凭据和无端口地址。
 3. 连接成功后 `/connections` 取真实连接数量及可用的累计字节字段；失败显示 `UNKNOWN` 与具体错误，不把旧会话当作可用。
 4. E 模式仅只读。无 Secret 的控制器可以使用；需要 Secret 的控制器返回 `CORE_AUTH_REQUIRED`。尚未实现 Keychain 中的 Secret 原生输入。
-5. P00–P10 导航完整；P00/P01 有真实 IPC，P02–P10 的业务内容仍为待接入状态。
+5. P00–P10 导航完整；P00/P01/P05 有真实 IPC，其他业务内容仍为待接入状态。P05 支持只读连接筛选、分页及定时快照，过期或断线显示未知。
 
 ## 验证
 
 - `npm run build`：通过。
-- `npm test`：4 项通过（浏览器阻断、版本冲突、后端错误、只读连接参数）。
-- [macOS CI 第三轮](https://github.com/baixian/cc/actions/runs/39189843429)：Rust 单测与桌面编译通过；前两轮 CI 暴露的 Tauri 命令签名和回环地址校验问题已修复。
+- `npm test`：5 项通过（浏览器阻断、版本冲突、后端错误、只读连接参数、连接分页参数）。
+- [macOS CI](https://github.com/baixian/cc/actions)：Rust 单测、IPC 生成类型比对与桌面编译；连接解析使用无凭据模拟响应测试。实机 API 兼容尚未验证。
 - macOS 系统观察、真实控制器兼容及网络接管：仍未做实机验证。
 
 ## 下一步优先级
@@ -20,8 +20,8 @@
 | 顺序 | 任务 | 准入条件 |
 |---|---|---|
 | 1 | Mac 实机 S0：环境只读探测、TUN/系统代理 POC、恢复方案 | 独立测试机与管理员测试授权 |
-| 2 | 固定 Mihomo 构建版本，录制 `/version`、`/configs`、`/connections` fixtures | 可访问的测试内核 |
-| 3 | 原生 Secret/Keychain、安全能力矩阵及 Rust DTO→TS 生成门禁 | Mac 编译链 |
+| 2 | 固定 Mihomo 构建版本，录制并脱敏 `/version`、`/configs`、`/connections` fixtures | 可访问的测试内核 |
+| 3 | 原生 Secret/Keychain、安全能力矩阵；Rust DTO→TS 生成门禁已接入 | Mac 编译链 |
 | 4 | 实时 WS 采集、断流 STALE 与 P01 拓扑 | 固定 API fixture 与状态定义 |
 | 5 | 订阅、规则及 AI 策略事务；最后是 helper/TUN 接管和实机恢复 | S0 安全路线确定 |
 
