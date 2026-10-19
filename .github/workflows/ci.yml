@@ -26,7 +26,7 @@ jobs:
         run: npm test
       - name: Frontend typecheck and build
         run: npm run build
-      - name: Rust tests
-        run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
+      - name: Rust tests and IPC contract drift
+        run: bash scripts/check-contracts.sh
       - name: Desktop compile
         run: cargo build --manifest-path apps/desktop/src-tauri/Cargo.toml

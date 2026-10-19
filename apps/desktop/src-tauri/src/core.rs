@@ -130,19 +130,19 @@ mod tests {
     }
     #[test]
     fn connection_page_preserves_unknown_fields_as_unknown() {
-        let input = serde_json::json!({"connections":[
-            {"id":"b","metadata":{"host":"example.org"},"chains":["AI-US"],"upload":123},
-            {"id":"a","metadata":{},"chains":[]},
-            {"metadata":{"host":"bad"}}
-        ]});
+        let input: Value = serde_json::from_str(include_str!("../fixtures/connections.json")).unwrap();
         let page = parse_connections(&input, "", 0, 1).unwrap();
-        assert_eq!(page.total, 2);
+        assert_eq!(page.total, 3);
         assert_eq!(page.skipped_count, 1);
-        assert_eq!(page.items[0].id, "a");
+        assert_eq!(page.items[0].id, "c-01");
         assert!(page.items[0].host.is_none());
+        assert!(page.items[0].download_bytes.is_none());
         assert!(page.has_more);
         let filtered = parse_connections(&input, "EXAMPLE", 0, 20).unwrap();
         assert_eq!(filtered.total, 1);
-        assert_eq!(filtered.items[0].upload_bytes, Some(123));
+        assert_eq!(filtered.items[0].upload_bytes, Some(512));
+        let second = parse_connections(&input, "", 1, 2).unwrap();
+        assert_eq!(second.items.iter().map(|x| x.id.as_str()).collect::<Vec<_>>(), vec!["c-02", "c-03"]);
+        assert!(!second.has_more);
     }
 }

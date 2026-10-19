@@ -1,0 +1,10 @@
+{
+  "uploadTotal": 2048,
+  "downloadTotal": 4096,
+  "connections": [
+    {"id":"c-02","metadata":{"host":"example.org","destinationIP":"93.184.215.14","processName":"Safari"},"upload":512,"download":1024,"chains":["Proxy","US"],"rule":"DOMAIN-SUFFIX"},
+    {"id":"c-01","metadata":{"destinationIP":"203.0.113.1"},"upload":0,"chains":[],"rule":"MATCH"},
+    {"metadata":{"host":"missing-id.example"}},
+    {"id":"c-03","metadata":{},"chains":[]}
+  ]
+}

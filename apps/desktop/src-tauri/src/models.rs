@@ -12,7 +12,7 @@ pub struct Envelope<T> {
 
 #[derive(Clone, Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../src/generated/")]
+#[ts(export)]
 pub struct ErrorDto {
     pub code: String,
     pub message: String,
@@ -45,7 +45,7 @@ impl<T> CommandResult<T> {
 
 #[derive(Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../src/generated/")]
+#[ts(export)]
 pub struct CapabilityDto {
     pub external_read: bool,
     pub external_select_proxy: bool,
@@ -60,7 +60,7 @@ pub struct CapabilityDto {
 
 #[derive(Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../src/generated/")]
+#[ts(export)]
 pub struct BootstrapDto {
     pub app_version: String,
     pub os_version: String,
@@ -81,7 +81,7 @@ impl BootstrapDto {
 
 #[derive(Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../src/generated/")]
+#[ts(export)]
 pub struct EnvironmentDto {
     pub os_version: String,
     pub architecture: String,
@@ -98,7 +98,7 @@ impl EnvironmentDto {
 
 #[derive(Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../src/generated/")]
+#[ts(export)]
 pub struct CoreSnapshotDto {
     pub state: String,
     pub observed_at: String,
@@ -110,7 +110,7 @@ pub struct CoreSnapshotDto {
 
 #[derive(Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../src/generated/")]
+#[ts(export)]
 pub struct CoreSessionDto {
     pub mode: String,
     pub state: String,
@@ -120,7 +120,7 @@ pub struct CoreSessionDto {
 
 #[derive(Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../src/generated/")]
+#[ts(export)]
 pub struct ConnectionDto {
     pub id: String,
     pub host: Option<String>,
@@ -134,7 +134,7 @@ pub struct ConnectionDto {
 
 #[derive(Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../src/generated/")]
+#[ts(export)]
 pub struct ConnectionPageDto {
     pub items: Vec<ConnectionDto>,
     pub next_cursor: Option<String>,
