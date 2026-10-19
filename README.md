@@ -32,3 +32,7 @@ macOS 上执行 `cd apps/desktop/src-tauri && cargo test` 检查 Rust DTO 和测
 4. 在恢复 journal/所有权机制通过实机测试前，保持所有网络写入能力关闭。
 
 参考资料位于用户提供的 V3.2 完整交付压缩包；源码不含节点凭据、订阅或第三方二进制。
+
+## Mac 实机与持续集成
+
+推送后 `.github/workflows/ci.yml` 会在 macOS runner 上执行前端测试、构建与 Rust 编译。CI 编译通过仅证明代码可构建，不等于系统代理、TUN 或恢复测试通过。S0 测试机可用 `bash scripts/mac-readonly-audit.sh /path/to/new-evidence-dir` 留存只读网络快照。报告可能含本机 IP、DNS 与 VPN 名称，分享前请检查并脱敏。

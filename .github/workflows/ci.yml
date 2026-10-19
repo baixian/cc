@@ -1,0 +1,32 @@
+name: Mac gateway S1 checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  macos-build:
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install JavaScript dependencies
+        run: npm ci --prefix apps/desktop
+      - name: Frontend tests
+        run: npm test
+      - name: Frontend typecheck and build
+        run: npm run build
+      - name: Rust tests
+        run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
+      - name: Desktop compile
+        run: cargo build --manifest-path apps/desktop/src-tauri/Cargo.toml
