@@ -5,7 +5,7 @@
 ## 已实现
 
 - Tauri 2 + Vue 3 + TypeScript + Rust 工程目录和最小 capability/CSP。
-- P00–P10 导航及统一状态框架；P00/P01/P05/P06 读取 Rust IPC，明确显示未知、断开和未接管；其他页面为未接入占位。
+- P00–P10 导航及统一状态框架；P00/P01/P05/P06 读取 Rust IPC，明确显示未知、断开和未接管；其他页面为未接入占位。P00 在 macOS 上只读检查当前代理配置的启用标记，不返回代理地址，不能据此判定 VPN 或流量路径。
 - `app_get_bootstrap`、`system_get_environment`、`core_connect_external`、`core_disconnect`、`core_get_snapshot`。目前仅支持无 Secret 的本机控制器只读连接；严格限制到 `127.0.0.1` 或 `::1`，不访问其他地址，不修改网络。
 - `/version` 与 `/connections` 真实读取；P01 每两秒读取连接快照并汇总最多 6 条常见链路、缺失链路数及有进程名的连接数，五秒无成功读取则显示 `UNKNOWN`。这些字段不能证明系统代理或 TUN 已接管。P05 展示连接目标、进程、规则、链路和流量，支持筛选、分页、两秒轮询及五秒过期提示；连接变化可能影响分页顺序。
 - P06 提供手动只读诊断：分别读取本机控制器的 `/version`、`/connections`，显示接口可读性、耗时与原因码。外网、DNS、系统代理、TUN 均不在这次诊断范围，网络健康保持 `UNKNOWN`。

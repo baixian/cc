@@ -2,6 +2,7 @@
 
 mod models;
 mod core;
+mod environment;
 use models::{BootstrapDto, CommandResult, ConnectionPageDto, CoreSessionDto, CoreSnapshotDto, DiagnosticReportDto, EnvironmentDto, ErrorDto};
 use std::sync::Mutex;
 use tauri::State;
