@@ -3,7 +3,7 @@
 mod models;
 mod core;
 mod environment;
-use models::{BootstrapDto, CommandResult, ConnectionPageDto, CoreSessionDto, CoreSnapshotDto, DiagnosticReportDto, EnvironmentDto, ErrorDto};
+use models::{BootstrapDto, CommandResult, ConnectionPageDto, CoreSessionDto, CoreSnapshotDto, DiagnosticReportDto, EnvironmentDto, ErrorDto, ProxyCatalogDto, RunningRulesDto, RuleSimulationDto};
 use std::sync::Mutex;
 use tauri::State;
 
@@ -101,10 +101,37 @@ async fn diagnostics_run(request_id: String, state: State<'_, CoreState>) -> Res
     })
 }
 
+#[tauri::command]
+async fn nodes_list(state: State<'_, CoreState>) -> Result<CommandResult<ProxyCatalogDto>, String> {
+    let connected = state.0.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    Ok(match connected {
+        Some(c) => match core::catalog(&c).await { Ok(data) => CommandResult::success(data), Err(e) => CommandResult::failure(e) },
+        None => CommandResult::failure(ErrorDto::new("NO_CORE", "尚未连接 Mihomo 内核", false)),
+    })
+}
+
+#[tauri::command]
+async fn rules_get(state: State<'_, CoreState>) -> Result<CommandResult<RunningRulesDto>, String> {
+    let connected = state.0.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    Ok(match connected {
+        Some(c) => match core::running_rules(&c).await { Ok(data) => CommandResult::success(data), Err(e) => CommandResult::failure(e) },
+        None => CommandResult::failure(ErrorDto::new("NO_CORE", "尚未连接 Mihomo 内核", false)),
+    })
+}
+
+#[tauri::command]
+async fn rules_simulate(hostname: String, state: State<'_, CoreState>) -> Result<CommandResult<RuleSimulationDto>, String> {
+    let connected = state.0.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    Ok(match connected {
+        Some(c) => match core::simulate_running_domain(&c, &hostname).await { Ok(data) => CommandResult::success(data), Err(e) => CommandResult::failure(e) },
+        None => CommandResult::failure(ErrorDto::new("NO_CORE", "尚未连接 Mihomo 内核", false)),
+    })
+}
+
 fn main() {
     tauri::Builder::default()
         .manage(CoreState::default())
-        .invoke_handler(tauri::generate_handler![app_get_bootstrap, system_get_environment, core_connect_external, core_disconnect, core_get_snapshot, connections_list, diagnostics_run])
+        .invoke_handler(tauri::generate_handler![app_get_bootstrap, system_get_environment, core_connect_external, core_disconnect, core_get_snapshot, connections_list, diagnostics_run, nodes_list, rules_get, rules_simulate])
         .run(tauri::generate_context!())
         .expect("failed to start desktop app");
 }

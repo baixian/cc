@@ -1,4 +1,4 @@
-use crate::models::{ConnectionDto, ConnectionPageDto, CoreSnapshotDto, DiagnosticProbeDto, DiagnosticReportDto, ErrorDto, RouteEvidenceDto};
+use crate::models::{ConnectionDto, ConnectionPageDto, CoreSnapshotDto, DiagnosticProbeDto, DiagnosticReportDto, ErrorDto, ProviderSummaryDto, ProxyCatalogDto, ProxyGroupDto, ProxyNodeDto, RouteEvidenceDto, RunningRuleDto, RunningRulesDto, RuleSimulationDto};
 use serde_json::Value;
 use std::{collections::BTreeMap, net::{Ipv4Addr, Ipv6Addr}, time::{Duration, Instant}};
 use url::{Host, Url};
@@ -163,6 +163,99 @@ pub async fn diagnose(core: &ExternalCore) -> DiagnosticReportDto {
     DiagnosticReportDto { observed_at: chrono::Utc::now().to_rfc3339(), scope: "LOCAL_CONTROLLER_ONLY".into(), probes: vec![version, connections] }
 }
 
+fn parse_catalog(value: &Value, providers: Result<Value, ErrorDto>) -> Result<ProxyCatalogDto, ErrorDto> {
+    let raw = value.get("proxies").and_then(Value::as_object)
+        .ok_or_else(|| ErrorDto::new("CORE_RESPONSE_INVALID", "代理目录字段缺失", false))?;
+    let mut nodes = Vec::new();
+    let mut groups = Vec::new();
+    let mut omitted_count = raw.len().saturating_sub(1000) as u64;
+    for (key, entry) in raw.iter().take(1000) {
+        let name = bounded_string(entry.get("name")).unwrap_or_else(|| key.chars().take(256).collect());
+        let kind = bounded_string(entry.get("type")).unwrap_or_else(|| "UNKNOWN".into());
+        if let Some(all) = entry.get("all").and_then(Value::as_array) {
+            let candidates = all.iter().take(200).filter_map(|item| bounded_string(Some(item))).collect();
+            groups.push(ProxyGroupDto { name, kind, selected: bounded_string(entry.get("now")), candidates });
+        } else {
+            let last_delay_ms = entry.get("history").and_then(Value::as_array).and_then(|a| a.last())
+                .and_then(|h| h.get("delay")).and_then(Value::as_u64).filter(|n| *n > 0 && *n <= 60_000);
+            nodes.push(ProxyNodeDto { name, kind, alive: entry.get("alive").and_then(Value::as_bool), last_delay_ms });
+        }
+    }
+    let (providers, provider_error_code) = match providers {
+        Ok(value) => match value.get("providers").and_then(Value::as_object) {
+            Some(raw) => {
+                omitted_count += raw.len().saturating_sub(100) as u64;
+                (raw.iter().take(100).map(|(name, data)| ProviderSummaryDto {
+                    name: name.chars().take(256).collect(),
+                    node_count: data.get("proxies").and_then(Value::as_array).map_or(0, |a| a.len() as u64),
+                }).collect(), None)
+            }
+            None => (Vec::new(), Some("CORE_RESPONSE_INVALID".into())),
+        },
+        Err(error) => (Vec::new(), Some(error.code)),
+    };
+    Ok(ProxyCatalogDto { observed_at: chrono::Utc::now().to_rfc3339(), nodes, groups, providers, provider_error_code, omitted_count })
+}
+
+pub async fn catalog(core: &ExternalCore) -> Result<ProxyCatalogDto, ErrorDto> {
+    let proxies = get_json(&core.endpoint, "/proxies").await?;
+    let providers = get_json(&core.endpoint, "/providers/proxies").await;
+    parse_catalog(&proxies, providers)
+}
+
+pub fn parse_rules(value: &Value) -> Result<RunningRulesDto, ErrorDto> {
+    let raw = value.get("rules").and_then(Value::as_array)
+        .ok_or_else(|| ErrorDto::new("CORE_RESPONSE_INVALID", "规则列表字段缺失", false))?;
+    let rules = raw.iter().take(2000).enumerate().map(|(index, entry)| RunningRuleDto {
+        index: entry.get("index").and_then(Value::as_u64).unwrap_or(index as u64),
+        kind: if entry.get("payload").and_then(Value::as_str).is_some_and(|s| s.chars().count() > 256) {
+            "UNKNOWN".into()
+        } else { bounded_string(entry.get("type")).unwrap_or_else(|| "UNKNOWN".into()) },
+        payload: bounded_string(entry.get("payload")).unwrap_or_default(),
+        proxy: bounded_string(entry.get("proxy")).unwrap_or_else(|| "UNKNOWN".into()),
+        disabled: entry.get("extra").and_then(|extra| extra.get("disabled")).and_then(Value::as_bool).unwrap_or(false),
+    }).collect();
+    Ok(RunningRulesDto { observed_at: chrono::Utc::now().to_rfc3339(), rules, omitted_count: raw.len().saturating_sub(2000) as u64 })
+}
+
+pub async fn running_rules(core: &ExternalCore) -> Result<RunningRulesDto, ErrorDto> {
+    parse_rules(&get_json(&core.endpoint, "/rules").await?)
+}
+
+fn valid_hostname(host: &str) -> bool {
+    host.len() <= 253 && host.len() >= 3 && host.contains('.') && host.split('.').all(|label|
+        !label.is_empty() && label.len() <= 63 && !label.starts_with('-') && !label.ends_with('-')
+            && label.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'))
+}
+
+pub fn simulate_domain(rules: &RunningRulesDto, host: &str) -> RuleSimulationDto {
+    let host = host.to_ascii_lowercase();
+    let make = |state: &str, rule: Option<RunningRuleDto>, reason: Option<&str>| RuleSimulationDto {
+        observed_at: rules.observed_at.clone(), state: state.into(), rule,
+        reason_code: reason.map(str::to_owned), scope: "STATIC_DOMAIN_ONLY".into(),
+    };
+    for rule in &rules.rules {
+        if rule.disabled { continue; }
+        let value = rule.payload.to_ascii_lowercase();
+        let matched = match rule.kind.as_str() {
+            "DOMAIN" if valid_hostname(&value) => host == value,
+            "DOMAIN-SUFFIX" if valid_hostname(&value) => host == value || host.ends_with(&format!(".{value}")),
+            "DOMAIN-KEYWORD" if !value.is_empty() => host.contains(&value),
+            "MATCH" => true,
+            _ => return make("UNSUPPORTED", Some(rule.clone()), Some("EARLIER_RULE_UNRESOLVED")),
+        };
+        if matched { return make("MATCHED", Some(rule.clone()), None); }
+    }
+    if rules.omitted_count > 0 { make("UNSUPPORTED", None, Some("RULE_LIST_TRUNCATED")) }
+    else { make("NO_MATCH", None, None) }
+}
+
+pub async fn simulate_running_domain(core: &ExternalCore, host: &str) -> Result<RuleSimulationDto, ErrorDto> {
+    if !valid_hostname(host) { return Err(ErrorDto::new("INVALID_HOSTNAME", "请输入有效的 ASCII 域名", false)); }
+    let rules = running_rules(core).await?;
+    Ok(simulate_domain(&rules, host))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -213,5 +306,18 @@ mod tests {
         let offline = diagnostic_probe("version", Err(ErrorDto::new("CORE_UNAVAILABLE", "离线", true)), Duration::ZERO);
         assert_eq!(offline.status, "UNAVAILABLE");
         assert_eq!(offline.reason_code.as_deref(), Some("CORE_UNAVAILABLE"));
+    }
+    #[test]
+    fn ordered_simulation_stops_at_unresolved_rule() {
+        let rules = parse_rules(&serde_json::json!({"rules":[
+            {"type":"DOMAIN","payload":"other.example","proxy":"DIRECT"},
+            {"type":"RULE-SET","payload":"unknown","proxy":"GROUP"},
+            {"type":"DOMAIN-SUFFIX","payload":"example.com","proxy":"GROUP"},
+            {"type":"MATCH","payload":"","proxy":"DIRECT"}
+        ]})).unwrap();
+        let result = simulate_domain(&rules, "a.example.com");
+        assert_eq!(result.state, "UNSUPPORTED");
+        assert_eq!(result.rule.unwrap().index, 1);
+        assert!(!valid_hostname("-bad.example"));
     }
 }

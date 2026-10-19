@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { gatewayApi, GatewayIpcError } from './ipc';
-import type { BootstrapDto, ConnectionPageDto, CoreSnapshotDto, DiagnosticReportDto, EnvironmentDto } from './generated/contracts';
+import type { BootstrapDto, ConnectionPageDto, CoreSnapshotDto, DiagnosticReportDto, EnvironmentDto, ProxyCatalogDto, RunningRulesDto, RuleSimulationDto } from './generated/contracts';
 import { pages, type PageKey } from './pages';
 
 const active = ref<PageKey>('overview');
@@ -18,6 +18,16 @@ const connectionLoading = ref(false);
 const diagnosticReport = ref<DiagnosticReportDto | null>(null);
 const diagnosticError = ref('');
 const diagnosticLoading = ref(false);
+const catalog = ref<ProxyCatalogDto | null>(null);
+const catalogError = ref('');
+const catalogLoading = ref(false);
+const runningRules = ref<RunningRulesDto | null>(null);
+const rulesError = ref('');
+const rulesLoading = ref(false);
+const simulateHost = ref('');
+const simulation = ref<RuleSimulationDto | null>(null);
+const simulationError = ref('');
+const simulationLoading = ref(false);
 const connectionFilter = ref('');
 const appliedFilter = ref('');
 const cursor = ref<string | null>(null);
@@ -27,6 +37,8 @@ let poller: ReturnType<typeof setInterval> | undefined;
 let generation = 0;
 let snapshotGeneration = 0;
 let diagnosticGeneration = 0;
+let catalogGeneration = 0;
+let rulesGeneration = 0;
 const connectionStale = computed(() => !connectionPage.value || clock.value - Date.parse(connectionPage.value.observedAt) > 5000);
 const snapshotStale = computed(() => !snapshot.value || clock.value - Date.parse(snapshot.value.observedAt) > 5000);
 const overviewValid = computed(() => !coreError.value && !snapshotStale.value);
@@ -55,6 +67,8 @@ async function refresh() {
       await loadOverviewSnapshot();
     }
     if (active.value === 'connections') void loadConnections();
+    if (active.value === 'nodes') void loadCatalog();
+    if (active.value === 'rules') void loadRules();
   } catch (cause) {
     boot.value = null;
     environment.value = null;
@@ -74,13 +88,58 @@ async function disconnect() {
   generation++;
   snapshotGeneration++;
   diagnosticGeneration++;
+  catalogGeneration++;
+  rulesGeneration++;
   diagnosticReport.value = null;
   diagnosticError.value = '';
   connectionPage.value = null;
   snapshot.value = null;
+  catalog.value = null;
+  runningRules.value = null;
+  simulation.value = null;
   try { await gatewayApi.disconnect(); await refresh(); }
   catch (cause) { error.value = explain(cause, '断开失败'); }
   finally { loading.value = false; }
+}
+async function loadCatalog() {
+  if (boot.value?.coreMode !== 'external') return;
+  const request = ++catalogGeneration;
+  catalogLoading.value = true;
+  try {
+    const result = await gatewayApi.nodesList();
+    if (request !== catalogGeneration || boot.value?.coreMode !== 'external') return;
+    catalog.value = result;
+    catalogError.value = '';
+  } catch (cause) {
+    if (request === catalogGeneration) catalogError.value = explain(cause, '代理目录读取失败');
+  } finally { if (request === catalogGeneration) catalogLoading.value = false; }
+}
+async function loadRules() {
+  if (boot.value?.coreMode !== 'external') return;
+  const request = ++rulesGeneration;
+  rulesLoading.value = true;
+  simulation.value = null;
+  try {
+    const result = await gatewayApi.rulesGet();
+    if (request !== rulesGeneration || boot.value?.coreMode !== 'external') return;
+    runningRules.value = result;
+    rulesError.value = '';
+  } catch (cause) {
+    if (request === rulesGeneration) rulesError.value = explain(cause, '规则读取失败');
+  } finally { if (request === rulesGeneration) rulesLoading.value = false; }
+}
+async function simulateRule() {
+  if (boot.value?.coreMode !== 'external' || simulationLoading.value) return;
+  const request = rulesGeneration;
+  simulationLoading.value = true;
+  simulation.value = null;
+  simulationError.value = '';
+  try {
+    const result = await gatewayApi.rulesSimulate(simulateHost.value.trim());
+    if (request === rulesGeneration) simulation.value = result;
+  } catch (cause) {
+    if (request === rulesGeneration) simulationError.value = explain(cause, '规则模拟失败');
+  } finally { simulationLoading.value = false; }
 }
 async function runDiagnostics() {
   if (diagnosticLoading.value || boot.value?.coreMode !== 'external') return;
@@ -162,6 +221,8 @@ watch(active, page => {
   generation++;
   if (page === 'connections') void loadConnections();
   if (page === 'overview') void loadOverviewSnapshot();
+  if (page === 'nodes') void loadCatalog();
+  if (page === 'rules') void loadRules();
 });
 onMounted(() => {
   void refresh();
@@ -171,7 +232,7 @@ onMounted(() => {
     if (active.value === 'overview' && boot.value?.coreMode === 'external') void loadOverviewSnapshot();
   }, 2000);
 });
-onUnmounted(() => { if (poller) clearInterval(poller); generation++; snapshotGeneration++; diagnosticGeneration++; });
+onUnmounted(() => { if (poller) clearInterval(poller); generation++; snapshotGeneration++; diagnosticGeneration++; catalogGeneration++; rulesGeneration++; });
 </script>
 
 <template>
@@ -200,6 +261,17 @@ onUnmounted(() => { if (poller) clearInterval(poller); generation++; snapshotGen
           <div v-else-if="!connectionPage" class="empty"><div class="empty-mark">◇</div><b>{{ connectionLoading ? '正在读取连接' : '暂无有效连接快照' }}</b></div>
           <template v-else><div class="table-wrap"><table><thead><tr><th>目标</th><th>进程</th><th>规则</th><th>链路</th><th>上传 / 下载</th></tr></thead><tbody><tr v-for="item in connectionPage.items" :key="item.id"><td>{{ item.host || item.destinationIp || '未知' }}<small v-if="item.host && item.destinationIp">{{ item.destinationIp }}</small></td><td>{{ item.processName || '未知' }}</td><td>{{ item.rule || '未知' }}</td><td>{{ item.chains.length ? item.chains.join(' → ') : '未知' }}</td><td>{{ displayBytes(item.uploadBytes) }} / {{ displayBytes(item.downloadBytes) }}</td></tr></tbody></table></div><div v-if="!connectionPage.items.length" class="empty compact">当前筛选下没有连接。</div><div class="pagination"><span>第 {{ cursorHistory.length + 1 }} 页 · 跳过无效记录 {{ connectionPage.skippedCount }} 条</span><div><button :disabled="!cursorHistory.length" @click="previousConnections">上一页</button><button :disabled="!connectionPage.hasMore" @click="nextConnections">下一页</button></div></div><p class="table-note">每页重新读取实时快照；连接变化可能改变分页顺序。超过 5 秒无成功读取时状态标记为 UNKNOWN。</p></template>
         </div></template>
+        <template v-else-if="active === 'nodes'"><div class="panel"><div class="panel-title"><strong>代理节点与策略组 · 运行中配置</strong><span>{{ catalog?.observedAt ?? '尚未观测' }}</span></div>
+          <p class="table-note">从当前本机 Mihomo 控制器读取；此页不切换节点或写入订阅。</p><button class="diag-run" :disabled="catalogLoading || boot?.coreMode !== 'external'" @click="loadCatalog">{{ catalogLoading ? '读取中…' : '刷新目录' }}</button>
+          <div v-if="catalogError" class="alert" role="alert">{{ catalogError }}。已有数据仅是历史快照。</div><div v-if="boot?.coreMode !== 'external'" class="empty compact">请先在首次使用页连接本机控制器。</div>
+          <template v-else-if="catalog"><div class="section-heading">策略组 · {{ catalog.groups.length }}</div><div class="table-wrap"><table><thead><tr><th>名称</th><th>类型</th><th>当前选择</th><th>候选节点（最多 200 个）</th></tr></thead><tbody><tr v-for="group in catalog.groups" :key="group.name"><td>{{ group.name }}</td><td>{{ group.kind }}</td><td>{{ group.selected ?? '未知' }}</td><td>{{ group.candidates.join('、') || '未知' }}</td></tr></tbody></table></div><div v-if="!catalog.groups.length" class="empty compact">未返回策略组。</div>
+          <div class="section-heading">节点 · {{ catalog.nodes.length }}</div><div class="table-wrap"><table><thead><tr><th>名称</th><th>类型</th><th>内核存活字段</th><th>最近一次历史延迟</th></tr></thead><tbody><tr v-for="node in catalog.nodes" :key="node.name"><td>{{ node.name }}</td><td>{{ node.kind }}</td><td>{{ node.alive === null ? '未知' : node.alive ? '是' : '否' }}</td><td>{{ node.lastDelayMs === null ? '未知' : node.lastDelayMs + ' ms' }}</td></tr></tbody></table></div><div v-if="!catalog.nodes.length" class="empty compact">未返回节点。</div>
+          <div class="section-heading">内核代理提供者 · {{ catalog.providers.length }}</div><p v-if="catalog.providerErrorCode" class="table-note unknown">提供者接口不可用：{{ catalog.providerErrorCode }}；不代表没有订阅。</p><div v-for="provider in catalog.providers" :key="provider.name" class="check-row"><span>{{ provider.name }}</span><strong>{{ provider.nodeCount }} 个节点</strong></div><p class="table-note">目录截取遗漏 {{ catalog.omittedCount }} 项；延迟来自内核历史记录，不是本应用新发起的测速。</p></template>
+          <div v-else class="empty compact">{{ catalogLoading ? '正在读取目录…' : '暂无有效目录快照' }}</div></div></template>
+        <template v-else-if="active === 'rules'"><div class="panel"><div class="panel-title"><strong>运行中规则 · 顺序匹配</strong><span>{{ runningRules?.observedAt ?? '尚未观测' }}</span></div><p class="table-note">读取当前内核的有序规则。静态域名模拟仅支持 DOMAIN、DOMAIN-SUFFIX、DOMAIN-KEYWORD 和 MATCH；前置规则无法解析时停止并显示“不支持模拟”。</p><button class="diag-run" :disabled="rulesLoading || boot?.coreMode !== 'external'" @click="loadRules">{{ rulesLoading ? '读取中…' : '刷新规则' }}</button>
+          <form class="connections-toolbar" @submit.prevent="simulateRule"><input v-model="simulateHost" maxlength="253" placeholder="输入 ASCII 域名，如 example.com" aria-label="模拟域名" :disabled="boot?.coreMode !== 'external'"/><button :disabled="simulationLoading || boot?.coreMode !== 'external'" type="submit">{{ simulationLoading ? '模拟中…' : '模拟首个命中' }}</button></form>
+          <div v-if="rulesError" class="alert" role="alert">{{ rulesError }}。已有规则仅是历史快照。</div><div v-if="simulationError" class="alert" role="alert">{{ simulationError }}</div><div v-if="simulation" class="simulation-result"><strong>{{ simulation.state === 'MATCHED' ? '首个命中' : simulation.state === 'NO_MATCH' ? '未命中' : '不支持模拟' }}</strong><span>{{ simulation.rule ? '#' + simulation.rule.index + ' ' + simulation.rule.kind + ' ' + simulation.rule.payload + ' → ' + simulation.rule.proxy : simulation.reasonCode ?? '无匹配规则' }}</span><small>范围：{{ simulation.scope }} · {{ simulation.observedAt }}；不代表实际流量路径。</small></div>
+          <div v-if="boot?.coreMode !== 'external'" class="empty compact">请先在首次使用页连接本机控制器。</div><template v-else-if="runningRules"><div class="section-heading">规则 · {{ runningRules.rules.length }}</div><div class="table-wrap"><table><thead><tr><th>顺序</th><th>类型</th><th>内容</th><th>目标策略</th><th>状态</th></tr></thead><tbody><tr v-for="rule in runningRules.rules" :key="rule.index"><td>{{ rule.index }}</td><td>{{ rule.kind }}</td><td>{{ rule.payload || '—' }}</td><td>{{ rule.proxy }}</td><td>{{ rule.disabled ? '禁用' : '启用' }}</td></tr></tbody></table></div><div v-if="!runningRules.rules.length" class="empty compact">未返回规则。</div><p class="table-note">超过上限遗漏 {{ runningRules.omittedCount }} 条。规则编辑、校验、预览、确认、应用及读回仍需完成。</p></template><div v-else class="empty compact">{{ rulesLoading ? '正在读取规则…' : '暂无有效规则快照' }}</div></div></template>
         <template v-else-if="active === 'diagnostics'"><div class="panel"><div class="panel-title"><strong>本机控制器诊断</strong><span>只读 · 手动运行</span></div><p class="diag-intro">检测当前连接的 Mihomo 控制器接口是否可读。系统 DNS、外网连通性、代理和 TUN 均未检测，网络健康仍为 UNKNOWN。</p><button class="diag-run" :disabled="diagnosticLoading || boot?.coreMode !== 'external'" @click="runDiagnostics">{{ diagnosticLoading ? '正在读取…' : '运行控制器诊断' }}</button><div v-if="diagnosticError" class="alert" role="alert">{{ diagnosticError }}</div><div v-if="diagnosticReport" class="diagnostic-results"><div class="check-row" v-for="probe in diagnosticReport.probes" :key="probe.name"><span>{{ probe.name === 'version' ? '版本接口 /version' : '连接接口 /connections' }}</span><strong :class="{ unknown: probe.status !== 'AVAILABLE' }">{{ probe.status === 'AVAILABLE' ? '可读' : '不可读' }} · {{ probe.latencyMs }} ms<br/><small>{{ diagnosticReason(probe.reasonCode) }}</small></strong></div><p>观测时间：{{ diagnosticReport.observedAt }} · 本次报告仅限本机控制器；诊断结果不会自动保留为网络健康结论。</p></div><div v-else-if="boot?.coreMode !== 'external'" class="empty compact">请先在首次使用页连接本机控制器。</div></div></template>
         <template v-else><div class="panel"><div class="panel-title"><strong>{{ current.name }}</strong><span>接口接入待完成</span></div><div class="empty"><div class="empty-mark">◇</div><b>尚无真实数据</b><p>此页已纳入导航与状态框架。{{ current.detail }}将在相应 Rust IPC 和实机验收通过后开放。</p></div></div></template>
         <div class="footnote">{{ environment?.observedAt ? `环境观测时间：${environment.observedAt}` : '尚无有效环境快照' }} · 当前版本不修改代理、DNS 或路由。</div>

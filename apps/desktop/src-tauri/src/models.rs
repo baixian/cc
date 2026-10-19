@@ -195,6 +195,82 @@ pub struct DiagnosticReportDto {
     pub probes: Vec<DiagnosticProbeDto>,
 }
 
+#[derive(Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ProxyNodeDto {
+    pub name: String,
+    pub kind: String,
+    pub alive: Option<bool>,
+    #[ts(type = "number | null")]
+    pub last_delay_ms: Option<u64>,
+}
+
+#[derive(Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ProxyGroupDto {
+    pub name: String,
+    pub kind: String,
+    pub selected: Option<String>,
+    pub candidates: Vec<String>,
+}
+
+#[derive(Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ProviderSummaryDto {
+    pub name: String,
+    #[ts(type = "number")]
+    pub node_count: u64,
+}
+
+#[derive(Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ProxyCatalogDto {
+    pub observed_at: String,
+    pub nodes: Vec<ProxyNodeDto>,
+    pub groups: Vec<ProxyGroupDto>,
+    pub providers: Vec<ProviderSummaryDto>,
+    pub provider_error_code: Option<String>,
+    #[ts(type = "number")]
+    pub omitted_count: u64,
+}
+
+#[derive(Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct RunningRuleDto {
+    #[ts(type = "number")]
+    pub index: u64,
+    pub kind: String,
+    pub payload: String,
+    pub proxy: String,
+    pub disabled: bool,
+}
+
+#[derive(Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct RunningRulesDto {
+    pub observed_at: String,
+    pub rules: Vec<RunningRuleDto>,
+    #[ts(type = "number")]
+    pub omitted_count: u64,
+}
+
+#[derive(Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct RuleSimulationDto {
+    pub observed_at: String,
+    pub state: String,
+    pub rule: Option<RunningRuleDto>,
+    pub reason_code: Option<String>,
+    pub scope: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

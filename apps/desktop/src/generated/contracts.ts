@@ -10,6 +10,13 @@ export type { ErrorDto } from './ipc/ErrorDto';
 export type { RouteEvidenceDto } from './ipc/RouteEvidenceDto';
 export type { DiagnosticProbeDto } from './ipc/DiagnosticProbeDto';
 export type { DiagnosticReportDto } from './ipc/DiagnosticReportDto';
+export type { ProxyNodeDto } from './ipc/ProxyNodeDto';
+export type { ProxyGroupDto } from './ipc/ProxyGroupDto';
+export type { ProviderSummaryDto } from './ipc/ProviderSummaryDto';
+export type { ProxyCatalogDto } from './ipc/ProxyCatalogDto';
+export type { RunningRuleDto } from './ipc/RunningRuleDto';
+export type { RunningRulesDto } from './ipc/RunningRulesDto';
+export type { RuleSimulationDto } from './ipc/RuleSimulationDto';
 import type { ErrorDto } from './ipc/ErrorDto';
 export type CommandResult<T> = {
   ok: boolean;
