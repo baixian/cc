@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { gatewayApi, GatewayIpcError } from './ipc';
-import type { BootstrapDto, CoreSnapshotDto, EnvironmentDto } from './generated/contracts';
+import type { BootstrapDto, ConnectionPageDto, CoreSnapshotDto, EnvironmentDto } from './generated/contracts';
 import { pages, type PageKey } from './pages';
 
 const active = ref<PageKey>('overview');
@@ -12,6 +12,17 @@ const endpoint = ref('http://127.0.0.1:9090');
 const error = ref('');
 const coreError = ref('');
 const loading = ref(false);
+const connectionPage = ref<ConnectionPageDto | null>(null);
+const connectionError = ref('');
+const connectionLoading = ref(false);
+const connectionFilter = ref('');
+const appliedFilter = ref('');
+const cursor = ref<string | null>(null);
+const cursorHistory = ref<(string | null)[]>([]);
+const clock = ref(Date.now());
+let poller: ReturnType<typeof setInterval> | undefined;
+let generation = 0;
+const connectionStale = computed(() => !connectionPage.value || clock.value - Date.parse(connectionPage.value.observedAt) > 5000);
 const current = computed(() => pages.find(p => p.key === active.value)!);
 function explain(cause: unknown, fallback: string) {
   return cause instanceof GatewayIpcError ? `${cause.code}：${cause.message}` : fallback;
@@ -29,6 +40,7 @@ async function refresh() {
       try { snapshot.value = await gatewayApi.coreSnapshot(); }
       catch (cause) { coreError.value = explain(cause, '内核快照读取失败'); }
     }
+    if (active.value === 'connections') void loadConnections();
   } catch (cause) {
     boot.value = null;
     environment.value = null;
@@ -45,11 +57,66 @@ async function connect() {
 }
 async function disconnect() {
   loading.value = true;
+  generation++;
+  connectionPage.value = null;
   try { await gatewayApi.disconnect(); await refresh(); }
   catch (cause) { error.value = explain(cause, '断开失败'); }
   finally { loading.value = false; }
 }
-onMounted(refresh);
+async function loadConnections() {
+  if (connectionLoading.value || active.value !== 'connections') return;
+  const request = generation;
+  connectionLoading.value = true;
+  try {
+    const page = await gatewayApi.connectionsList(cursor.value, appliedFilter.value);
+    if (request !== generation || active.value !== 'connections') return;
+    connectionPage.value = page;
+    connectionError.value = '';
+    clock.value = Date.now();
+  } catch (cause) {
+    if (request !== generation || active.value !== 'connections') return;
+    connectionError.value = explain(cause, '连接数据读取失败');
+  } finally { connectionLoading.value = false; }
+}
+function filterConnections() {
+  generation++;
+  appliedFilter.value = connectionFilter.value.trim();
+  cursor.value = null;
+  cursorHistory.value = [];
+  connectionPage.value = null;
+  void loadConnections();
+}
+function nextConnections() {
+  if (!connectionPage.value?.nextCursor) return;
+  cursorHistory.value.push(cursor.value);
+  cursor.value = connectionPage.value.nextCursor;
+  connectionPage.value = null;
+  generation++;
+  void loadConnections();
+}
+function previousConnections() {
+  if (!cursorHistory.value.length) return;
+  cursor.value = cursorHistory.value.pop() ?? null;
+  connectionPage.value = null;
+  generation++;
+  void loadConnections();
+}
+function displayBytes(value: number | null) {
+  if (value === null) return '未知';
+  return `${(value / 1024).toFixed(1)} KiB`;
+}
+watch(active, page => {
+  generation++;
+  if (page === 'connections') void loadConnections();
+});
+onMounted(() => {
+  void refresh();
+  poller = setInterval(() => {
+    clock.value = Date.now();
+    if (active.value === 'connections' && boot.value?.coreMode === 'external') void loadConnections();
+  }, 2000);
+});
+onUnmounted(() => { if (poller) clearInterval(poller); generation++; });
 </script>
 
 <template>
@@ -71,6 +138,13 @@ onMounted(refresh);
           <div class="panel topology"><div class="panel-title"><strong>网络拓扑</strong><span>{{ snapshot ? `内核 ${snapshot.coreVersion}` : '真实连接采集待接入' }}</span></div><div class="empty"><div class="empty-mark">◎</div><b>{{ snapshot ? `当前观测到 ${snapshot.connectionCount} 条连接` : '暂无可验证的连接数据' }}</b><p>连接计数来自本机控制器；进程识别、路由链路与动态拓扑将在采集器实现后展示。</p></div></div>
         </template>
         <template v-else-if="active === 'onboarding'"><div class="panel"><div class="panel-title"><strong>首次使用 · 环境扫描</strong><span>只读接入</span></div><div class="check-row"><span>操作系统</span><strong>{{ environment?.osVersion ?? '未知' }}</strong></div><div class="check-row"><span>CPU 架构</span><strong>{{ environment?.architecture ?? '未知' }}</strong></div><div class="check-row"><span>网络检查</span><strong class="unknown">{{ environment?.networkStatus ?? 'UNKNOWN' }}</strong></div><form class="connect-form" @submit.prevent="connect"><label for="endpoint">本机 Mihomo 控制器地址（无需 Secret 的控制器）</label><div><input id="endpoint" v-model="endpoint" placeholder="http://127.0.0.1:9090" :disabled="loading"/><button :disabled="loading" type="submit">连接只读内核</button><button v-if="boot?.coreMode === 'external'" :disabled="loading" type="button" @click="disconnect">断开</button></div><small>仅连接 127.0.0.1 或 ::1；不修改现有 Clash 配置、系统代理或 TUN。需要 Secret 的控制器会明确报错。</small></form><div class="notice">托管模式的配置预览、预检、系统授权及读回健康尚未实现，当前不能完成托管向导。</div></div></template>
+        <template v-else-if="active === 'connections'"><div class="panel"><div class="panel-title"><strong>实时连接 · 本机 Mihomo</strong><span>{{ connectionError || connectionStale ? 'UNKNOWN / 数据已过期' : '已观测' }} · {{ connectionPage?.observedAt ?? '尚未观测' }}</span></div>
+          <form class="connections-toolbar" @submit.prevent="filterConnections"><input v-model="connectionFilter" maxlength="128" placeholder="筛选域名、IP、进程或规则" aria-label="筛选连接"/><button type="submit">筛选</button><button type="button" @click="loadConnections">刷新</button><span>{{ connectionLoading ? '读取中' : `匹配 ${connectionPage?.total ?? '未知'} 条` }}</span></form>
+          <div v-if="connectionError" class="alert" role="alert">{{ connectionError }}。已有列表仅作为历史快照，不代表当前连接状态。</div>
+          <div v-if="!boot || boot.coreMode !== 'external'" class="empty"><div class="empty-mark">◇</div><b>尚未连接本机控制器</b><p>在首次使用页连接后才能读取真实连接。</p></div>
+          <div v-else-if="!connectionPage" class="empty"><div class="empty-mark">◇</div><b>{{ connectionLoading ? '正在读取连接' : '暂无有效连接快照' }}</b></div>
+          <template v-else><div class="table-wrap"><table><thead><tr><th>目标</th><th>进程</th><th>规则</th><th>链路</th><th>上传 / 下载</th></tr></thead><tbody><tr v-for="item in connectionPage.items" :key="item.id"><td>{{ item.host || item.destinationIp || '未知' }}<small v-if="item.host && item.destinationIp">{{ item.destinationIp }}</small></td><td>{{ item.processName || '未知' }}</td><td>{{ item.rule || '未知' }}</td><td>{{ item.chains.length ? item.chains.join(' → ') : '未知' }}</td><td>{{ displayBytes(item.uploadBytes) }} / {{ displayBytes(item.downloadBytes) }}</td></tr></tbody></table></div><div v-if="!connectionPage.items.length" class="empty compact">当前筛选下没有连接。</div><div class="pagination"><span>第 {{ cursorHistory.length + 1 }} 页 · 跳过无效记录 {{ connectionPage.skippedCount }} 条</span><div><button :disabled="!cursorHistory.length" @click="previousConnections">上一页</button><button :disabled="!connectionPage.hasMore" @click="nextConnections">下一页</button></div></div><p class="table-note">每页重新读取实时快照；连接变化可能改变分页顺序。超过 5 秒无成功读取时状态标记为 UNKNOWN。</p></template>
+        </div></template>
         <template v-else><div class="panel"><div class="panel-title"><strong>{{ current.name }}</strong><span>接口接入待完成</span></div><div class="empty"><div class="empty-mark">◇</div><b>尚无真实数据</b><p>此页已纳入导航与状态框架。{{ current.detail }}将在相应 Rust IPC 和实机验收通过后开放。</p></div></div></template>
         <div class="footnote">{{ environment?.observedAt ? `环境观测时间：${environment.observedAt}` : '尚无有效环境快照' }} · 当前版本不修改代理、DNS 或路由。</div>
       </div>

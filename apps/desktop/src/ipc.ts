@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { BootstrapDto, CommandResult, CoreSessionDto, CoreSnapshotDto, EnvironmentDto } from './generated/contracts';
+import type { BootstrapDto, CommandResult, ConnectionPageDto, CoreSessionDto, CoreSnapshotDto, EnvironmentDto } from './generated/contracts';
 
 export class GatewayIpcError extends Error {
   constructor(readonly code: string, message: string, readonly traceId = '') { super(message); }
@@ -19,6 +19,7 @@ export const gatewayApi = {
   bootstrap: () => readCommand<BootstrapDto>('app_get_bootstrap'),
   environment: () => readCommand<EnvironmentDto>('system_get_environment'),
   coreSnapshot: () => readCommand<CoreSnapshotDto>('core_get_snapshot'),
+  connectionsList: (cursor: string | null, filter: string) => readCommand<ConnectionPageDto>('connections_list', {cursor, filter, limit:25}),
   connectExternal: (endpoint: string) => readCommand<CoreSessionDto>('core_connect_external', {endpoint, readonly:true, requestId:crypto.randomUUID()}),
   disconnect: () => readCommand<boolean>('core_disconnect', {requestId:crypto.randomUUID()}),
 };

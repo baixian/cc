@@ -118,6 +118,32 @@ pub struct CoreSessionDto {
     pub endpoint: String,
 }
 
+#[derive(Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../src/generated/")]
+pub struct ConnectionDto {
+    pub id: String,
+    pub host: Option<String>,
+    pub destination_ip: Option<String>,
+    pub process_name: Option<String>,
+    pub rule: Option<String>,
+    pub chains: Vec<String>,
+    pub upload_bytes: Option<u64>,
+    pub download_bytes: Option<u64>,
+}
+
+#[derive(Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../src/generated/")]
+pub struct ConnectionPageDto {
+    pub items: Vec<ConnectionDto>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+    pub total: usize,
+    pub skipped_count: usize,
+    pub observed_at: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

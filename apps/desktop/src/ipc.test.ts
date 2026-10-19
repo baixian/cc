@@ -34,4 +34,10 @@ describe('read-only IPC gateway', () => {
     });
     vi.unstubAllGlobals();
   });
+  it('passes pagination and filter to the read-only connections command', async () => {
+    Object.assign(globalThis, {window: {__TAURI_INTERNALS__: {}}});
+    vi.mocked(invoke).mockResolvedValue({ok:true,envelope:{schemaVersion:3,data:{items:[],total:0}}});
+    await gatewayApi.connectionsList('25', 'example.org');
+    expect(invoke).toHaveBeenCalledWith('connections_list', {cursor:'25', filter:'example.org', limit:25});
+  });
 });

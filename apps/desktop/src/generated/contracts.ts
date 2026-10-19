@@ -18,6 +18,14 @@ export interface CoreSnapshotDto {
   uploadBytes: number | null; downloadBytes: number | null;
 }
 export interface CoreSessionDto { mode: string; state: string; version: string; endpoint: string }
+export interface ConnectionDto {
+  id: string; host: string | null; destinationIp: string | null; processName: string | null;
+  rule: string | null; chains: string[]; uploadBytes: number | null; downloadBytes: number | null;
+}
+export interface ConnectionPageDto {
+  items: ConnectionDto[]; nextCursor: string | null; hasMore: boolean;
+  total: number; skippedCount: number; observedAt: string;
+}
 export interface ErrorDto { code: string; message: string; retryable: boolean; traceId: string }
 export type CommandResult<T> = {
   ok: boolean;

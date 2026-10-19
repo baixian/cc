@@ -2,7 +2,7 @@
 
 mod models;
 mod core;
-use models::{BootstrapDto, CommandResult, CoreSessionDto, CoreSnapshotDto, EnvironmentDto, ErrorDto};
+use models::{BootstrapDto, CommandResult, ConnectionPageDto, CoreSessionDto, CoreSnapshotDto, EnvironmentDto, ErrorDto};
 use std::sync::Mutex;
 use tauri::State;
 
@@ -65,10 +65,31 @@ async fn core_get_snapshot(state: State<'_, CoreState>) -> Result<CommandResult<
     })
 }
 
+#[tauri::command]
+async fn connections_list(cursor: Option<String>, limit: Option<usize>, filter: Option<String>, state: State<'_, CoreState>) -> Result<CommandResult<ConnectionPageDto>, String> {
+    let offset = match cursor.as_deref().unwrap_or("0").parse::<usize>() {
+        Ok(n) if n <= 100_000 => n,
+        _ => return Ok(CommandResult::failure(ErrorDto::new("INVALID_CURSOR", "分页位置无效", false))),
+    };
+    let filter = filter.unwrap_or_default();
+    if filter.chars().count() > 128 {
+        return Ok(CommandResult::failure(ErrorDto::new("INVALID_FILTER", "筛选文本不能超过 128 字符", false)));
+    }
+    let limit = limit.unwrap_or(25).clamp(1, 100);
+    let connected = state.0.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    Ok(match connected {
+        Some(c) => match core::list_connections(&c, &filter, offset, limit).await {
+            Ok(page) => CommandResult::success(page),
+            Err(e) => CommandResult::failure(e),
+        },
+        None => CommandResult::failure(ErrorDto::new("NO_CORE", "尚未连接 Mihomo 内核", false)),
+    })
+}
+
 fn main() {
     tauri::Builder::default()
         .manage(CoreState::default())
-        .invoke_handler(tauri::generate_handler![app_get_bootstrap, system_get_environment, core_connect_external, core_disconnect, core_get_snapshot])
+        .invoke_handler(tauri::generate_handler![app_get_bootstrap, system_get_environment, core_connect_external, core_disconnect, core_get_snapshot, connections_list])
         .run(tauri::generate_context!())
         .expect("failed to start desktop app");
 }
