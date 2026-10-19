@@ -3,9 +3,10 @@
 mod models;
 mod core;
 mod environment;
-use models::{BootstrapDto, CommandResult, ConnectionPageDto, CoreSessionDto, CoreSnapshotDto, DiagnosticReportDto, EnvironmentDto, ErrorDto, ProxyCatalogDto, RunningRulesDto, RuleSimulationDto};
+mod settings;
+use models::{BootstrapDto, CommandResult, ConnectionPageDto, CoreSessionDto, CoreSnapshotDto, DiagnosticReportDto, EnvironmentDto, ErrorDto, ProxyCatalogDto, RunningRulesDto, RuleSimulationDto, SettingsDto};
 use std::sync::Mutex;
-use tauri::State;
+use tauri::{Manager, State};
 
 #[derive(Default)]
 struct CoreState(Mutex<Option<core::ExternalCore>>);
@@ -15,7 +16,7 @@ fn valid_request_id(value: &str) -> bool {
 }
 
 #[tauri::command]
-fn app_get_bootstrap(state: State<'_, CoreState>) -> CommandResult<BootstrapDto> {
+fn app_get_bootstrap(state: State<'_, CoreState>, settings: State<'_, settings::SettingsStore>) -> CommandResult<BootstrapDto> {
     let mut boot = BootstrapDto::new();
     let guard = state.0.lock().unwrap_or_else(|e| e.into_inner());
     if guard.is_some() {
@@ -23,7 +24,27 @@ fn app_get_bootstrap(state: State<'_, CoreState>) -> CommandResult<BootstrapDto>
         boot.core_state = "EXTERNAL_READONLY".into();
         boot.capabilities.external_read = true;
     }
+    match settings.get() {
+        Ok(value) => boot.settings_revision = value.revision,
+        Err(_) => boot.capabilities.reason_codes.push("SETTINGS_UNAVAILABLE".into()),
+    }
     CommandResult::success(boot)
+}
+
+#[tauri::command]
+fn settings_get(settings: State<'_, settings::SettingsStore>) -> CommandResult<SettingsDto> {
+    match settings.get() { Ok(value) => CommandResult::success(value), Err(error) => CommandResult::failure(error) }
+}
+
+#[tauri::command]
+fn settings_update(request_id: String, expected_revision: u32, refresh_interval_seconds: u32,
+    settings: State<'_, settings::SettingsStore>) -> CommandResult<SettingsDto> {
+    if !valid_request_id(&request_id) {
+        return CommandResult::failure(ErrorDto::new("INVALID_REQUEST", "请求 ID 无效", false));
+    }
+    match settings.update(expected_revision, refresh_interval_seconds) {
+        Ok(value) => CommandResult::success(value), Err(error) => CommandResult::failure(error),
+    }
 }
 
 #[tauri::command]
@@ -131,7 +152,12 @@ async fn rules_simulate(hostname: String, state: State<'_, CoreState>) -> Result
 fn main() {
     tauri::Builder::default()
         .manage(CoreState::default())
-        .invoke_handler(tauri::generate_handler![app_get_bootstrap, system_get_environment, core_connect_external, core_disconnect, core_get_snapshot, connections_list, diagnostics_run, nodes_list, rules_get, rules_simulate])
+        .setup(|app| {
+            let config_dir = app.path().app_config_dir()?;
+            app.manage(settings::SettingsStore::new(config_dir));
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![app_get_bootstrap, system_get_environment, core_connect_external, core_disconnect, core_get_snapshot, connections_list, diagnostics_run, nodes_list, rules_get, rules_simulate, settings_get, settings_update])
         .run(tauri::generate_context!())
         .expect("failed to start desktop app");
 }

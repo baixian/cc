@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { BootstrapDto, CommandResult, ConnectionPageDto, CoreSessionDto, CoreSnapshotDto, DiagnosticReportDto, EnvironmentDto, ProxyCatalogDto, RunningRulesDto, RuleSimulationDto } from './generated/contracts';
+import type { BootstrapDto, CommandResult, ConnectionPageDto, CoreSessionDto, CoreSnapshotDto, DiagnosticReportDto, EnvironmentDto, ProxyCatalogDto, RunningRulesDto, RuleSimulationDto, SettingsDto } from './generated/contracts';
 
 export class GatewayIpcError extends Error {
   constructor(readonly code: string, message: string, readonly traceId = '') { super(message); }
@@ -24,6 +24,8 @@ export const gatewayApi = {
   nodesList: () => readCommand<ProxyCatalogDto>('nodes_list'),
   rulesGet: () => readCommand<RunningRulesDto>('rules_get'),
   rulesSimulate: (hostname: string) => readCommand<RuleSimulationDto>('rules_simulate', {hostname}),
+  settingsGet: () => readCommand<SettingsDto>('settings_get'),
+  settingsUpdate: (expectedRevision: number, refreshIntervalSeconds: number) => readCommand<SettingsDto>('settings_update', {requestId:crypto.randomUUID(),expectedRevision,refreshIntervalSeconds}),
   connectExternal: (endpoint: string) => readCommand<CoreSessionDto>('core_connect_external', {endpoint, readonly:true, requestId:crypto.randomUUID()}),
   disconnect: () => readCommand<boolean>('core_disconnect', {requestId:crypto.randomUUID()}),
 };

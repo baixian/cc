@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { gatewayApi, GatewayIpcError } from './ipc';
-import type { BootstrapDto, ConnectionPageDto, CoreSnapshotDto, DiagnosticReportDto, EnvironmentDto, ProxyCatalogDto, RunningRulesDto, RuleSimulationDto } from './generated/contracts';
+import type { BootstrapDto, ConnectionPageDto, CoreSnapshotDto, DiagnosticReportDto, EnvironmentDto, ProxyCatalogDto, RunningRulesDto, RuleSimulationDto, SettingsDto } from './generated/contracts';
 import { pages, type PageKey } from './pages';
 
 const active = ref<PageKey>('overview');
@@ -28,6 +28,10 @@ const simulateHost = ref('');
 const simulation = ref<RuleSimulationDto | null>(null);
 const simulationError = ref('');
 const simulationLoading = ref(false);
+const settings = ref<SettingsDto | null>(null);
+const settingsError = ref('');
+const settingsSaving = ref(false);
+const preferenceInterval = ref(2);
 const connectionFilter = ref('');
 const appliedFilter = ref('');
 const cursor = ref<string | null>(null);
@@ -113,6 +117,35 @@ async function loadCatalog() {
   } catch (cause) {
     if (request === catalogGeneration) catalogError.value = explain(cause, '代理目录读取失败');
   } finally { if (request === catalogGeneration) catalogLoading.value = false; }
+}
+function startPoller(seconds: number) {
+  if (poller) clearInterval(poller);
+  poller = setInterval(() => {
+    clock.value = Date.now();
+    if (active.value === 'connections' && boot.value?.coreMode === 'external') void loadConnections();
+    if (active.value === 'overview' && boot.value?.coreMode === 'external') void loadOverviewSnapshot();
+  }, seconds * 1000);
+}
+async function loadSettings() {
+  try {
+    const current = await gatewayApi.settingsGet();
+    settings.value = current;
+    preferenceInterval.value = current.refreshIntervalSeconds;
+    settingsError.value = '';
+    startPoller(current.refreshIntervalSeconds);
+  } catch (cause) { settingsError.value = explain(cause, '无法读取偏好设置'); }
+}
+async function saveSettings() {
+  if (!settings.value || settingsSaving.value) return;
+  settingsSaving.value = true;
+  try {
+    const current = await gatewayApi.settingsUpdate(settings.value.revision, Number(preferenceInterval.value));
+    settings.value = current;
+    settingsError.value = '';
+    startPoller(current.refreshIntervalSeconds);
+    await refresh();
+  } catch (cause) { settingsError.value = explain(cause, '无法保存偏好设置'); }
+  finally { settingsSaving.value = false; }
 }
 async function loadRules() {
   if (boot.value?.coreMode !== 'external') return;
@@ -223,14 +256,12 @@ watch(active, page => {
   if (page === 'overview') void loadOverviewSnapshot();
   if (page === 'nodes') void loadCatalog();
   if (page === 'rules') void loadRules();
+  if (page === 'settings') void loadSettings();
 });
 onMounted(() => {
   void refresh();
-  poller = setInterval(() => {
-    clock.value = Date.now();
-    if (active.value === 'connections' && boot.value?.coreMode === 'external') void loadConnections();
-    if (active.value === 'overview' && boot.value?.coreMode === 'external') void loadOverviewSnapshot();
-  }, 2000);
+  startPoller(2);
+  void loadSettings();
 });
 onUnmounted(() => { if (poller) clearInterval(poller); generation++; snapshotGeneration++; diagnosticGeneration++; catalogGeneration++; rulesGeneration++; });
 </script>
@@ -272,6 +303,11 @@ onUnmounted(() => { if (poller) clearInterval(poller); generation++; snapshotGen
           <form class="connections-toolbar" @submit.prevent="simulateRule"><input v-model="simulateHost" maxlength="253" placeholder="输入 ASCII 域名，如 example.com" aria-label="模拟域名" :disabled="boot?.coreMode !== 'external'"/><button :disabled="simulationLoading || boot?.coreMode !== 'external'" type="submit">{{ simulationLoading ? '模拟中…' : '模拟首个命中' }}</button></form>
           <div v-if="rulesError" class="alert" role="alert">{{ rulesError }}。已有规则仅是历史快照。</div><div v-if="simulationError" class="alert" role="alert">{{ simulationError }}</div><div v-if="simulation" class="simulation-result"><strong>{{ simulation.state === 'MATCHED' ? '首个命中' : simulation.state === 'NO_MATCH' ? '未命中' : '不支持模拟' }}</strong><span>{{ simulation.rule ? '#' + simulation.rule.index + ' ' + simulation.rule.kind + ' ' + simulation.rule.payload + ' → ' + simulation.rule.proxy : simulation.reasonCode ?? '无匹配规则' }}</span><small>范围：{{ simulation.scope }} · {{ simulation.observedAt }}；不代表实际流量路径。</small></div>
           <div v-if="boot?.coreMode !== 'external'" class="empty compact">请先在首次使用页连接本机控制器。</div><template v-else-if="runningRules"><div class="section-heading">规则 · {{ runningRules.rules.length }}</div><div class="table-wrap"><table><thead><tr><th>顺序</th><th>类型</th><th>内容</th><th>目标策略</th><th>状态</th></tr></thead><tbody><tr v-for="rule in runningRules.rules" :key="rule.index"><td>{{ rule.index }}</td><td>{{ rule.kind }}</td><td>{{ rule.payload || '—' }}</td><td>{{ rule.proxy }}</td><td>{{ rule.disabled ? '禁用' : '启用' }}</td></tr></tbody></table></div><div v-if="!runningRules.rules.length" class="empty compact">未返回规则。</div><p class="table-note">超过上限遗漏 {{ runningRules.omittedCount }} 条。规则编辑、校验、预览、确认、应用及读回仍需完成。</p></template><div v-else class="empty compact">{{ rulesLoading ? '正在读取规则…' : '暂无有效规则快照' }}</div></div></template>
+        <template v-else-if="active === 'settings'"><div class="panel"><div class="panel-title"><strong>本机偏好设置</strong><span>版本 {{ settings?.revision ?? '未知' }}</span></div>
+          <p class="table-note">偏好保存到本机应用配置目录；不会保存节点凭据，也不会改变系统代理、DNS 或路由。</p><div v-if="settingsError" class="alert" role="alert">{{ settingsError }}</div>
+          <form v-if="settings" class="settings-form" @submit.prevent="saveSettings"><label for="refresh-interval">总览和连接自动刷新间隔</label><select id="refresh-interval" v-model.number="preferenceInterval" :disabled="settingsSaving"><option v-for="seconds in [2, 5, 10, 15, 30]" :key="seconds" :value="seconds">{{ seconds }} 秒</option></select><button type="submit" :disabled="settingsSaving">{{ settingsSaving ? '保存中…' : '保存偏好' }}</button></form><div v-else class="empty compact">偏好暂不可用。</div>
+          <div class="section-heading">当前能力与限制</div><div class="check-row"><span>外部内核只读</span><strong>{{ boot?.capabilities.externalRead ? '可用' : '不可用' }}</strong></div><div class="check-row"><span>托管内核</span><strong>{{ boot?.capabilities.managedCore ? '可用' : '尚未开放' }}</strong></div><div class="check-row"><span>系统代理 / TUN</span><strong>{{ boot?.capabilities.systemProxy || boot?.capabilities.tun ? '部分可用' : '尚未开放' }}</strong></div><div class="check-row"><span>恢复能力</span><strong>{{ boot?.capabilities.networkRestore ? '可用' : '尚未开放' }}</strong></div><p class="table-note">能力原因：{{ boot?.capabilities.reasonCodes.join('、') || '尚未读取' }}。当前设置仅控制页面刷新频率；系统接管和更新设置将在门禁与恢复实现后接入。</p>
+        </div></template>
         <template v-else-if="active === 'diagnostics'"><div class="panel"><div class="panel-title"><strong>本机控制器诊断</strong><span>只读 · 手动运行</span></div><p class="diag-intro">检测当前连接的 Mihomo 控制器接口是否可读。系统 DNS、外网连通性、代理和 TUN 均未检测，网络健康仍为 UNKNOWN。</p><button class="diag-run" :disabled="diagnosticLoading || boot?.coreMode !== 'external'" @click="runDiagnostics">{{ diagnosticLoading ? '正在读取…' : '运行控制器诊断' }}</button><div v-if="diagnosticError" class="alert" role="alert">{{ diagnosticError }}</div><div v-if="diagnosticReport" class="diagnostic-results"><div class="check-row" v-for="probe in diagnosticReport.probes" :key="probe.name"><span>{{ probe.name === 'version' ? '版本接口 /version' : '连接接口 /connections' }}</span><strong :class="{ unknown: probe.status !== 'AVAILABLE' }">{{ probe.status === 'AVAILABLE' ? '可读' : '不可读' }} · {{ probe.latencyMs }} ms<br/><small>{{ diagnosticReason(probe.reasonCode) }}</small></strong></div><p>观测时间：{{ diagnosticReport.observedAt }} · 本次报告仅限本机控制器；诊断结果不会自动保留为网络健康结论。</p></div><div v-else-if="boot?.coreMode !== 'external'" class="empty compact">请先在首次使用页连接本机控制器。</div></div></template>
         <template v-else><div class="panel"><div class="panel-title"><strong>{{ current.name }}</strong><span>接口接入待完成</span></div><div class="empty"><div class="empty-mark">◇</div><b>尚无真实数据</b><p>此页已纳入导航与状态框架。{{ current.detail }}将在相应 Rust IPC 和实机验收通过后开放。</p></div></div></template>
         <div class="footnote">{{ environment?.observedAt ? `环境观测时间：${environment.observedAt}` : '尚无有效环境快照' }} · 当前版本不修改代理、DNS 或路由。</div>

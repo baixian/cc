@@ -17,6 +17,7 @@ export type { ProxyCatalogDto } from './ipc/ProxyCatalogDto';
 export type { RunningRuleDto } from './ipc/RunningRuleDto';
 export type { RunningRulesDto } from './ipc/RunningRulesDto';
 export type { RuleSimulationDto } from './ipc/RuleSimulationDto';
+export type { SettingsDto } from './ipc/SettingsDto';
 import type { ErrorDto } from './ipc/ErrorDto';
 export type CommandResult<T> = {
   ok: boolean;

@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 #[derive(Clone, Serialize)]
@@ -34,6 +34,19 @@ pub struct CommandResult<T> {
     pub envelope: Option<Envelope<T>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<ErrorDto>,
+}
+
+#[derive(Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[ts(export)]
+pub struct SettingsDto {
+    pub schema_version: u8,
+    pub revision: u32,
+    pub refresh_interval_seconds: u32,
+}
+
+impl Default for SettingsDto {
+    fn default() -> Self { Self { schema_version: 1, revision: 0, refresh_interval_seconds: 2 } }
 }
 
 impl<T> CommandResult<T> {
