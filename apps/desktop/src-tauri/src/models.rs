@@ -90,13 +90,21 @@ pub struct EnvironmentDto {
     pub network_status: String,
     pub proxy_state: String,
     pub proxy_reason_code: String,
+    pub dns_state: String,
+    pub dns_reason_code: String,
+    pub default_route_state: String,
+    pub default_route_reason_code: String,
 }
 
 impl EnvironmentDto {
     pub fn inspect() -> Self {
         let proxy = crate::environment::observe_proxy();
+        let dns = crate::environment::observe_dns();
+        let route = crate::environment::observe_default_route();
         Self { os_version: std::env::consts::OS.into(), architecture: std::env::consts::ARCH.into(), is_macos: cfg!(target_os = "macos"), observed_at: chrono::Utc::now().to_rfc3339(), network_status: "UNKNOWN".into(),
-            proxy_state: proxy.state.into(), proxy_reason_code: proxy.reason_code.into() }
+            proxy_state: proxy.state.into(), proxy_reason_code: proxy.reason_code.into(),
+            dns_state: dns.state.into(), dns_reason_code: dns.reason_code.into(),
+            default_route_state: route.state.into(), default_route_reason_code: route.reason_code.into() }
     }
 }
 

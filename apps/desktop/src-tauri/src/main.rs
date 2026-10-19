@@ -27,8 +27,10 @@ fn app_get_bootstrap(state: State<'_, CoreState>) -> CommandResult<BootstrapDto>
 }
 
 #[tauri::command]
-fn system_get_environment() -> CommandResult<EnvironmentDto> {
-    CommandResult::success(EnvironmentDto::inspect())
+async fn system_get_environment() -> Result<CommandResult<EnvironmentDto>, String> {
+    let result = tauri::async_runtime::spawn_blocking(EnvironmentDto::inspect).await
+        .map_err(|_| "环境读取任务失败".to_string())?;
+    Ok(CommandResult::success(result))
 }
 
 #[tauri::command]
