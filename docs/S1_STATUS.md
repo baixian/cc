@@ -12,7 +12,8 @@
 
 - `npm run build`：通过。
 - `npm test`：4 项通过（浏览器阻断、版本冲突、后端错误、只读连接参数）。
-- Rust 编译、Rust 单测、macOS 系统观察及网络接管：此环境缺 Rust/Xcode/Mac，未执行。
+- [macOS CI 第三轮](https://github.com/baixian/cc/actions/runs/39189843429)：Rust 单测与桌面编译通过；前两轮 CI 暴露的 Tauri 命令签名和回环地址校验问题已修复。
+- macOS 系统观察、真实控制器兼容及网络接管：仍未做实机验证。
 
 ## 下一步优先级
 

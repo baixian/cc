@@ -22,7 +22,7 @@ npm run build             # 前端类型检查及构建
 npm run test              # 前端 IPC 错误路径测试
 ```
 
-macOS 上执行 `cd apps/desktop/src-tauri && cargo test` 检查 Rust DTO 和测试；再执行 `cargo fmt --check`。此交付环境为 Linux，未安装 Rust/Xcode，不能宣称 Mac 构建和实机网络测试通过。生产打包也尚未配置签名、公证、helper、Mihomo 二进制和卸载恢复。
+macOS 上执行 `cd apps/desktop/src-tauri && cargo test` 检查 Rust DTO 和测试；再执行 `cargo fmt --check`。GitHub Actions 的 macOS S1 编译和单测已通过（[运行记录](https://github.com/baixian/cc/actions/runs/39189843429)）。这并不证明系统网络接管、真实控制器兼容或异常恢复通过。生产打包也尚未配置签名、公证、helper、Mihomo 二进制和卸载恢复。
 
 ## 下一批任务
 
